@@ -988,7 +988,7 @@ async def get_pisite_fault_detail(
     }
 
 
-
+async def get_report_records(
     report_type_id: int,
     db: AsyncSession,
     page: int = 1,
