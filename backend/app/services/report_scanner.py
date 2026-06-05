@@ -1094,12 +1094,12 @@ def _parse_access_layer_fault_files(directory: str) -> list[dict]:
                         continue
                     # 关键字包含匹配：表头中"接入层断纤链路清单（2026-06-04）"包含"接入层断纤链路"
                     for kw, en_key in _ACCESS_LAYER_KEYWORD_MAP:
-                        if len(kw) > 2 and kw in cell_str:
+                        if len(kw) >= 2 and kw in cell_str:
                             temp_map[col_idx] = en_key
                             matched += 1
                             break
 
-                if matched >= 3:  # 至少匹配 3 个关键字才认定是表头行
+                if matched >= 4:  # 至少匹配 4 个关键字才认定是表头行（含 县区 共需 8 个）
                     header_row_idx = row_idx
                     col_map = temp_map
                     break
