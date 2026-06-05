@@ -177,6 +177,7 @@ class CityWorkloadWorker(Base):
     report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=False, index=True)
     worker_name = Column(String(50), comment="装维人员姓名")
     area = Column(String(100), comment="所属区域")
+    grid = Column(String(100), comment="所属网格")
     # 积压和当日工作量按工作类型存储为JSON，结构: {"装移拆": {"backlog": 4, "today": 0}, ...}
     workload = Column(JSON, default=dict, comment="各工作类型积压和当日工作量")
     total_backlog = Column(Integer, default=0, comment="累计积压总量")

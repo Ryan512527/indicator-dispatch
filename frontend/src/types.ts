@@ -172,6 +172,7 @@ export interface CityWorkloadWorker {
   id: number;
   worker_name: string;
   area: string;
+  grid: string;
   workload: Record<string, { backlog: number; today: number }>;
   total_backlog: number;
   total_today: number;

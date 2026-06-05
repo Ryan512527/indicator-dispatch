@@ -2440,6 +2440,7 @@ def _parse_city_workload_files(directory: str) -> dict:
                 # 建立列映射
                 name_col = None
                 area_col = None
+                grid_col = None
                 # 工作类型 -> {"backlog": col_idx, "today": col_idx}
                 wt_col_map: dict[str, dict[str, int]] = {}
                 # 记录"累计积压量"组和"当日工作量统计"组的起始列
@@ -2455,6 +2456,8 @@ def _parse_city_workload_files(directory: str) -> dict:
                         area_col = idx
                     elif cell_str == "姓名":
                         name_col = idx
+                    elif cell_str == "网格":
+                        grid_col = idx
                     elif "累计积压量" in cell_str or "积压量" in cell_str:
                         backlog_group_start = idx
                     elif "当日工作量" in cell_str or "当日工作" in cell_str:
@@ -2541,6 +2544,11 @@ def _parse_city_workload_files(directory: str) -> dict:
                     if not worker_name or worker_name in ("nan", "#N/A"):
                         continue
 
+                    # 提取网格
+                    worker_grid = ""
+                    if grid_col is not None and grid_col < len(row) and row[grid_col]:
+                        worker_grid = str(row[grid_col]).strip()
+
                     # 提取各工作类型的积压和当日数据
                     workload: dict[str, dict[str, int]] = {}
                     total_backlog = 0
@@ -2576,6 +2584,7 @@ def _parse_city_workload_files(directory: str) -> dict:
                     workers.append({
                         "worker_name": worker_name,
                         "area": area,
+                        "grid": worker_grid,
                         "workload": workload,
                         "total_backlog": total_backlog,
                         "total_today": total_today,
@@ -2669,6 +2678,7 @@ async def reparse_city_workload(db: AsyncSession, directory: Optional[str] = Non
             report_file_id=report_file.id,
             worker_name=rec["worker_name"],
             area=rec["area"],
+            grid=rec.get("grid", ""),
             workload=rec["workload"],
             total_backlog=rec["total_backlog"],
             total_today=rec["total_today"],
@@ -2740,6 +2750,7 @@ async def get_city_workload_workers(db: AsyncSession) -> dict:
             "id": row.id,
             "worker_name": row.worker_name,
             "area": row.area,
+            "grid": row.grid or "",
             "workload": row.workload or {},
             "total_backlog": row.total_backlog,
             "total_today": row.total_today,

@@ -58,7 +58,7 @@ function WorkerCard({ worker }: { worker: CityWorkloadWorker }) {
             {worker.worker_name}
           </div>
           <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
-            {worker.area || '—'}
+            {worker.grid || worker.area || '—'}
           </div>
         </div>
       </div>
@@ -174,6 +174,23 @@ export function CityWorkloadDetail({ onBack }: { onBack: () => void }) {
   const totalBacklog = workers.reduce((sum, w) => sum + (w.total_backlog || 0), 0)
   const totalToday = workers.reduce((sum, w) => sum + (w.total_today || 0), 0)
 
+  // 计算各工作类型的积压总和
+  const typeBacklogTotals: Record<string, number> = {}
+  for (const type of WORK_TYPES) {
+    typeBacklogTotals[type] = workers.reduce((sum, w) => {
+      const wt = (w.workload || {})[type]
+      return sum + (wt ? (wt.backlog || 0) : 0)
+    }, 0)
+  }
+  // 当日总和
+  const typeTodayTotals: Record<string, number> = {}
+  for (const type of WORK_TYPES) {
+    typeTodayTotals[type] = workers.reduce((sum, w) => {
+      const wt = (w.workload || {})[type]
+      return sum + (wt ? (wt.today || 0) : 0)
+    }, 0)
+  }
+
   return (
     <div>
       {/* 顶部标题栏 */}
@@ -217,19 +234,44 @@ export function CityWorkloadDetail({ onBack }: { onBack: () => void }) {
             横山
           </span>
         </div>
-        <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 11, color: '#888' }}>装维人员</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: '#1e40af' }}>
               {summary?.total_staff || '—'}
             </div>
           </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: '#888' }}>总积压</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#ef4444' }}>
-              {totalBacklog}
+
+          {/* 工作类型积压分解 */}
+          <div style={{ flex: 1, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+            <div style={{ fontSize: 11, color: '#888', marginRight: 2 }}>积压</div>
+            {WORK_TYPES.map(type => (
+              <div key={type} style={{
+                textAlign: 'center',
+                background: typeBacklogTotals[type] > 0 ? '#fef2f2' : '#f9fafb',
+                borderRadius: 6,
+                padding: '4px 10px',
+              }}>
+                <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: 1 }}>{type}</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: typeBacklogTotals[type] > 0 ? '#dc2626' : '#bbb' }}>
+                  {typeBacklogTotals[type]}
+                </div>
+              </div>
+            ))}
+            <div style={{
+              textAlign: 'center',
+              background: '#fee2e2',
+              borderRadius: 6,
+              padding: '4px 10px',
+              borderLeft: '2px solid #dc2626',
+            }}>
+              <div style={{ fontSize: 10, color: '#9ca3af', marginBottom: 1 }}>合计</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#dc2626' }}>
+                {totalBacklog}
+              </div>
             </div>
           </div>
+
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 11, color: '#888' }}>总当日</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: '#16a34a' }}>
@@ -292,9 +334,18 @@ export function CityWorkloadDetail({ onBack }: { onBack: () => void }) {
                 alignItems: 'center',
                 fontSize: 13,
                 color: '#666',
+                flexWrap: 'wrap',
+                gap: 8,
               }}>
                 <span>共 {total} 位装维人员</span>
-                <span>总积压: <strong style={{ color: '#ef4444' }}>{totalBacklog}</strong> | 总当日: <strong style={{ color: '#16a34a' }}>{totalToday}</strong></span>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {WORK_TYPES.map(type => (
+                    <span key={type}>
+                      {type}: <strong style={{ color: typeBacklogTotals[type] > 0 ? '#dc2626' : '#bbb' }}>{typeBacklogTotals[type]}</strong>
+                    </span>
+                  ))}
+                  <span>当日: <strong style={{ color: totalToday > 0 ? '#16a34a' : '#bbb' }}>{totalToday}</strong></span>
+                </div>
               </div>
             </>
           )}
