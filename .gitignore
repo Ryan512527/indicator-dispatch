@@ -1,21 +1,12 @@
-# macOS
-.DS_Store
-
-# WorkBuddy
-.workbuddy/
-
-# Docker volumes
-data/
-
-# Python
 __pycache__/
 *.py[cod]
 *.egg-info/
 .env
 .venv/
 venv/
-
-# Node.js
 node_modules/
 dist/
-
+.DS_Store
+.workbuddy/
+data/
+.github_token
