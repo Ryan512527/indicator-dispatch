@@ -9,6 +9,18 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {".csv", ".json", ".xlsx", ".xls", ".xml"}
 
+# ── 专用报表配置 ──
+# 按关键词长度降序排列，避免短关键词误匹配长关键词
+# key: 文件名匹配关键词  →  value: 专用 reparse API 路径段
+SPECIALIZED_REPORTS = [
+    ("全市装维工作量统计", "city-workload"),
+    ("无线退服清单",       "wireless-outage"),
+    ("企宽装机通报",       "enterprise-broadband"),
+    ("皮站故障清单",       "pisite-fault"),
+    ("接入层通报",         "access-layer"),
+    ("日报",               "daily-report"),
+]
+
 
 class IndicatorFileHandler(FileSystemEventHandler):
     def __init__(self, loop: asyncio.AbstractEventLoop):
@@ -49,21 +61,47 @@ class FileWatcher:
         # No scan of existing files - already imported via batch_import.py.
         # Only watches for NEW files going forward.
 
+        import httpx
         from app.parser.service import parse_file as _parse_file_sync
         from app.classifier.service import classify_and_store
 
-        while self._running:
-            try:
-                filepath = await asyncio.wait_for(handler.queue.get(), timeout=2.0)
-                # Run parse in thread pool to avoid blocking event loop
-                records = await loop.run_in_executor(None, _parse_file_sync, filepath)
-                if records:
-                    n = await classify_and_store(records)
-                    logger.info(f"Stored {n} records from {os.path.basename(filepath)}")
-            except asyncio.TimeoutError:
-                continue
-            except Exception as e:
-                logger.error(f"Watcher: {e}", exc_info=True)
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
+            while self._running:
+                try:
+                    filepath = await asyncio.wait_for(handler.queue.get(), timeout=2.0)
+                    fname = os.path.basename(filepath)
+
+                    # ── 1. 专用报表识别与触发 ──
+                    matched_specialized = False
+                    for keyword, api_name in SPECIALIZED_REPORTS:
+                        if keyword in fname:
+                            logger.info(f"[Watcher] 检测到专用报表 '{keyword}'，触发专用解析: {fname}")
+                            try:
+                                resp = await client.post(
+                                    f"http://localhost:8000/api/v1/reports/{api_name}/reparse"
+                                )
+                                if resp.status_code == 200:
+                                    logger.info(f"[Watcher] 专用解析成功 [{api_name}]: {resp.json()}")
+                                else:
+                                    logger.warning(
+                                        f"[Watcher] 专用解析返回非200 [{api_name}]: {resp.status_code} {resp.text[:200]}"
+                                    )
+                            except Exception as e:
+                                logger.error(f"[Watcher] 专用解析调用失败 [{api_name}]: {e}", exc_info=True)
+                            matched_specialized = True
+                            break  # 只触发第一个匹配的专用报表
+
+                    # ── 2. 未匹配专用报表的，走通用解析 ──
+                    if not matched_specialized:
+                        records = await loop.run_in_executor(None, _parse_file_sync, filepath)
+                        if records:
+                            n = await classify_and_store(records)
+                            logger.info(f"Stored {n} records from {fname}")
+
+                except asyncio.TimeoutError:
+                    continue
+                except Exception as e:
+                    logger.error(f"Watcher: {e}", exc_info=True)
 
     async def stop(self):
         self._running = False
