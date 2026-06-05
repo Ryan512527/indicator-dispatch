@@ -83,14 +83,15 @@ class FileWatcher:
                                 )
                                 if resp.status_code == 200:
                                     logger.info(f"[Watcher] 专用解析成功 [{api_name}]: {resp.json()}")
+                                    matched_specialized = True
+                                    break  # 成功才跳过通用解析
                                 else:
                                     logger.warning(
-                                        f"[Watcher] 专用解析返回非200 [{api_name}]: {resp.status_code} {resp.text[:200]}"
+                                        f"[Watcher] 专用解析返回非200 [{api_name}]: {resp.status_code} {resp.text[:200]}，将尝试通用解析"
                                     )
                             except Exception as e:
-                                logger.error(f"[Watcher] 专用解析调用失败 [{api_name}]: {e}", exc_info=True)
-                            matched_specialized = True
-                            break  # 只触发第一个匹配的专用报表
+                                logger.error(f"[Watcher] 专用解析调用失败 [{api_name}]: {e}，将尝试通用解析", exc_info=True)
+                            # 若未成功设置 matched_specialized，则继续走通用解析流程
 
                     # ── 2. 未匹配专用报表的，走通用解析 ──
                     if not matched_specialized:
