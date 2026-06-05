@@ -1384,7 +1384,7 @@ def _parse_enterprise_broadband_files(directory: str) -> dict:
     filename = os.path.basename(latest_file)
 
     try:
-        wb = openpyxl.load_workbook(latest_file, data_only=True)
+        wb = openpyxl.load_workbook(latest_file, read_only=True, data_only=True)
 
         # ── 1. 解析"移动汇报"sheet ──
         summary = None
@@ -1423,14 +1423,17 @@ def _parse_enterprise_broadband_files(directory: str) -> dict:
         backlog_records: list[dict] = []
         if "积压" in wb.sheetnames:
             ws2 = wb["积压"]
-            rows_data2 = list(ws2.iter_rows(values_only=True))
+            # 流式读取表头（仅第一行），避免 list() 加载百万行导致 OOM
+            row_iter = ws2.iter_rows(values_only=True)
+            try:
+                header_row = next(row_iter)
+            except StopIteration:
+                header_row = ()
 
-            if not rows_data2:
+            if not header_row:
                 wb.close()
                 return {"summary": summary, "backlog": [], "filename": filename, "report_date": report_date}
 
-            # 表头在第0行，找列索引
-            header_row = rows_data2[0]
             col_map: dict[str, int] = {}
             target_fields = ["所属区县", "宽带账号", "施工地址", "施工人姓名",
                              "受理时间", "到装维时间", "完成时限", "用户品牌"]
@@ -1444,13 +1447,16 @@ def _parse_enterprise_broadband_files(directory: str) -> dict:
             missing = [f for f in target_fields if f not in col_map]
             if missing:
                 logger.warning(f"企宽装机通报积压sheet缺少字段: {missing}")
+                wb.close()
+                return {"summary": summary, "backlog": [], "filename": filename, "report_date": report_date}
 
-            # 提取横山数据
-            for row in rows_data2[1:]:
-                if not row or len(row) <= max(col_map.values(), default=0):
+            max_col_idx = max(col_map.values())
+            # 流式遍历剩余数据行（不加载全量到内存）
+            for row in row_iter:
+                if not row or len(row) <= max_col_idx:
                     continue
 
-                district_val = str(row[col_map.get("所属区县", 0)]).strip() if col_map.get("所属区县") is not None and len(row) > col_map["所属区县"] and row[col_map["所属区县"]] else ""
+                district_val = str(row[col_map.get("所属区县")]).strip() if col_map.get("所属区县") is not None and row[col_map["所属区县"]] else ""
                 if district_val != "横山县":
                     continue
 
