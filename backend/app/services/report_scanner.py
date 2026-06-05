@@ -2893,6 +2893,8 @@ def _parse_five_category_withdrawal_files(directory: str) -> dict:
                 district_val = str(row[COL_IDX['district']]).strip() if row[COL_IDX['district']] else ''
                 scene_val = str(row[COL_IDX['scene']]).strip() if row[COL_IDX['scene']] else ''
                 tichong1_val = str(row[COL_IDX['tichong1']]).strip() if row[COL_IDX['tichong1']] else ''
+                huilao_val = str(row[COL_IDX['huilao']]).strip() if row[COL_IDX['huilao']] else ''
+                accept_time_val = str(row[COL_IDX['accept_time']]).strip() if row[COL_IDX['accept_time']] else ''
 
                 # 筛选条件：所属区县=横山县，剔重1=正常
                 if district_val != '横山县':
@@ -2973,65 +2975,6 @@ def _parse_five_category_withdrawal_files(directory: str) -> dict:
         logger.error(f"解析五类工单退撤单情况失败 {filename}: {e}", exc_info=True)
         return {"summary": None, "details": [], "filename": filename, "report_date": None}
 
-                    # 计算疑似超时退单
-                    suspected_timeout = "未知"
-                    if return_time_str and deadline_str:
-                        try:
-                            # 尝试解析回单时间和完成时限
-                            return_dt = None
-                            deadline_dt = None
-                            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d"):
-                                try:
-                                    if not return_dt:
-                                        return_dt = _dt.strptime(return_time_str[:19], fmt)
-                                except (ValueError, TypeError):
-                                    pass
-                                try:
-                                    if not deadline_dt:
-                                        deadline_dt = _dt.strptime(deadline_str[:19], fmt)
-                                except (ValueError, TypeError):
-                                    pass
-                            if return_dt and deadline_dt:
-                                diff = deadline_dt - return_dt
-                                hours = diff.total_seconds() / 3600.0
-                                suspected_timeout = "是" if hours < 12 else "否"
-                        except Exception:
-                            suspected_timeout = "未知"
-                    elif not return_time_str:
-                        suspected_timeout = "未知"
-
-                    record = {
-                        "district": district_val,
-                        "account": _get_val("宽带账号"),
-                        "global_access": _get_val("全球通标识"),
-                        "service_type": _get_val("服务类型"),
-                        "construction_address": _get_val("施工地址"),
-                        "accept_department": _get_val("受理部门"),
-                        "accept_time": accept_time_str,
-                        "to_install_time": _get_val("到装维时间"),
-                        "deadline": deadline_str,
-                        "natural_duration": _get_val("处理时长"),
-                        "return_time": return_time_str,
-                        "archive_time": _get_val("归档时间"),
-                        "suspected_timeout": suspected_timeout,
-                        "return_note": _get_val("回单备注"),
-                        "specific_reason": _get_val("具体原因"),
-                    }
-                    details.append(record)
-
-                logger.info(f"五类工单退撤单情况明细: {filename} -> {len(details)} 条")
-
-        wb.close()
-        return {
-            "summary": summary,
-            "details": details,
-            "filename": filename,
-            "report_date": report_date,
-        }
-
-    except Exception as e:
-        logger.error(f"解析五类工单退撤单情况失败 {filename}: {e}", exc_info=True)
-        return {"summary": None, "details": [], "filename": filename, "report_date": None}
 
 
 async def reparse_five_category_withdrawal(db: AsyncSession, directory: Optional[str] = None) -> dict:

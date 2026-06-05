@@ -170,41 +170,20 @@ export function FiveCategoryWithdrawalDetail({ onBack }: { onBack: () => void })
                       >
                         {DISPLAY_FIELDS.map(f => {
                           const val = (rec as unknown as Record<string, string>)[f.key] || ''
-                          // 疑似超时退单高亮
+                          // 疑似超时退单高亮：值为"是"时显示红色
                           const isTimeout = f.key === 'suspected_timeout'
                           const isYes = isTimeout && val === '是'
-                          const isUnknown = isTimeout && val === '未知'
                           return (
                             <td key={f.key} style={{
                               padding: '8px 12px',
-                              color: '#333',
+                              color: isYes ? '#ef4444' : '#333',
+                              fontWeight: isYes ? 600 : 400,
                               maxWidth: f.width,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: f.key === 'construction_address' || f.key === 'return_note' || f.key === 'specific_reason' ? 'normal' : 'nowrap',
+                              whiteSpace: 'normal',
                               wordBreak: 'break-all',
-                            }} title={val}>
+                              lineHeight: 1.5,
+                            }}>
                               {val || '—'}
-                              {isYes && (
-                                <span style={{
-                                  marginLeft: 6,
-                                  fontSize: 10,
-                                  color: '#ef4444',
-                                  fontWeight: 600,
-                                }}>
-                                  疑似超时
-                                </span>
-                              )}
-                              {isUnknown && (
-                                <span style={{
-                                  marginLeft: 6,
-                                  fontSize: 10,
-                                  color: '#f59e0b',
-                                  fontWeight: 600,
-                                }}>
-                                  未知
-                                </span>
-                              )}
                             </td>
                           )
                         })}
