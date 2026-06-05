@@ -181,14 +181,14 @@ export function EnterpriseBroadbandBacklog({ onBack }: { onBack: () => void }) {
                               whiteSpace: f.key === 'address' ? 'normal' : 'nowrap',
                             }} title={val}>
                               {val || '—'}
-                              {isDuration && !isNaN(durationNum) && durationNum > 72 && (
+                              {isDuration && !isNaN(durationNum) && durationNum > 48 && (
                                 <span style={{
                                   marginLeft: 6,
                                   fontSize: 10,
                                   color: '#ef4444',
                                   fontWeight: 600,
                                 }}>
-                                  超72h
+                                  超48h
                                 </span>
                               )}
                             </td>
