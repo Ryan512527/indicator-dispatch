@@ -988,6 +988,373 @@ async def get_pisite_fault_detail(
     }
 
 
+# ── 接入层通报横山数据专用处理 ──
+
+# 接入层通报保留字段（仅提取这6个字段）
+ACCESS_LAYER_FAULT_FIELDS = [
+    "接入层断纤链路",   # fiber_break_link
+    "告警码名称",       # alarm_code_name
+    "发生时间",         # occurrence_time
+    "具体原因",         # specific_reason
+    "是否影响业务",     # business_affected
+    "故障历时",         # fault_duration
+]
+
+# 英文到中文映射
+ACCESS_LAYER_FAULT_EN_TO_CN = {
+    "fiber_break_link": "接入层断纤链路",
+    "alarm_code_name": "告警码名称",
+    "occurrence_time": "发生时间",
+    "specific_reason": "具体原因",
+    "business_affected": "是否影响业务",
+    "fault_duration": "故障历时",
+}
+
+
+def _extract_date_from_filename(filename: str) -> Optional[str]:
+    """从文件名中提取日期，用于排序确保最新文件在后。
+
+    支持格式: 2026-06-04, 20260604, 2026年06月04日 等。
+    返回 ISO 日期字符串 "YYYY-MM-DD"，失败返回 None。
+    """
+    patterns = [
+        r"(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})",
+        r"(\d{4})(\d{2})(\d{2})",
+    ]
+    for pat in patterns:
+        m = re.search(pat, filename)
+        if m:
+            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if 2020 <= y <= 2030 and 1 <= mo <= 12 and 1 <= d <= 31:
+                return f"{y:04d}-{mo:02d}-{d:02d}"
+    return None
+
+
+# 接入层通报列关键字 → 英文字段名映射（用于包含匹配）
+_ACCESS_LAYER_KEYWORD_MAP: list[tuple[str, str]] = [
+    ("接入层断纤链路", "fiber_break_link"),
+    ("告警码名称", "alarm_code_name"),
+    ("发生时间", "occurrence_time"),
+    ("具体原因", "specific_reason"),
+    ("是否影响业务", "business_affected"),
+    ("故障历时", "fault_duration"),
+    ("县区", "district"),
+    ("责任人", "responsible_person"),
+]
+
+
+def _parse_access_layer_fault_files(directory: str) -> list[dict]:
+    """
+    直接使用 openpyxl 解析所有"接入层通报"文件。
+    关键字包含匹配表头 → 提取字段 → 过滤县区=="横山"。
+    返回 [{"filename": str, "records": [dict]}, ...]
+    """
+    all_results: list[dict] = []
+
+    # 递归查找匹配文件
+    matching: list[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("~$") or f.startswith("."):
+                continue
+            if "接入层通报" in f and f.lower().endswith((".xlsx", ".xls")):
+                matching.append(os.path.join(root, f))
+
+    # 排序：优先按文件名中的日期，回退到 mtime（旧的先处理，新的后处理 → 新文件 id 更大）
+    def _sort_key(filepath: str) -> str:
+        fname = os.path.basename(filepath)
+        date_str = _extract_date_from_filename(fname)
+        if date_str:
+            return date_str
+        # 回退：用 mtime 生成日期
+        mtime = os.path.getmtime(filepath)
+        dt = datetime.fromtimestamp(mtime, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%d")
+
+    matching.sort(key=_sort_key)
+
+    for filepath in matching:
+        filename = os.path.basename(filepath)
+        try:
+            wb = openpyxl.load_workbook(filepath, data_only=True)
+            ws = wb.active
+
+            # ── 步骤1：检测表头行 ──
+            header_row_idx: Optional[int] = None
+            col_map: dict[int, str] = {}  # 列索引 → 英文字段名
+
+            for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
+                matched = 0
+                temp_map: dict[int, str] = {}
+                for col_idx, cell in enumerate(row):
+                    if cell is None:
+                        continue
+                    cell_str = str(cell).strip()
+                    if not cell_str:
+                        continue
+                    # 关键字包含匹配：表头中"接入层断纤链路清单（2026-06-04）"包含"接入层断纤链路"
+                    for kw, en_key in _ACCESS_LAYER_KEYWORD_MAP:
+                        if len(kw) >= 2 and kw in cell_str:
+                            temp_map[col_idx] = en_key
+                            matched += 1
+                            break
+
+                if matched >= 4:  # 至少匹配 4 个关键字才认定是表头行（含 县区 共需 8 个）
+                    header_row_idx = row_idx
+                    col_map = temp_map
+                    break
+
+            if header_row_idx is None:
+                logger.warning(f"接入层通报: {filename} 未检测到表头行")
+                wb.close()
+                continue
+
+            logger.info(
+                f"接入层通报: {filename} 表头行={header_row_idx}, 匹配列={list(col_map.values())}"
+            )
+
+            # ── 步骤2：提取数据行 ──
+            filtered: list[dict] = []
+            for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
+                if row_idx <= header_row_idx:
+                    continue
+
+                # 构建英文字段记录
+                record: dict[str, str] = {}
+                for col_idx, en_key in col_map.items():
+                    val = ""
+                    if col_idx < len(row) and row[col_idx] is not None:
+                        val = str(row[col_idx]).strip()
+                    record[en_key] = val
+
+                # 过滤：县区 == 横山
+                district = record.get("district", "")
+                if district != "横山":
+                    continue
+
+                # 只保留 6 个指定字段，映射为中文名称
+                clean: dict[str, str] = {}
+                for en_key, cn_key in ACCESS_LAYER_FAULT_EN_TO_CN.items():
+                    val = record.get(en_key, "")
+                    clean[cn_key] = str(val) if val else ""
+                filtered.append(clean)
+
+            wb.close()
+
+            all_results.append({
+                "filename": filename,
+                "records": filtered,
+            })
+            if filtered:
+                logger.info(f"接入层通报横山: {filename} -> {len(filtered)} 条横山记录")
+            else:
+                logger.info(f"接入层通报横山: {filename} -> 0 条横山记录")
+
+        except Exception as e:
+            logger.error(f"解析接入层通报文件失败 {filename}: {e}", exc_info=True)
+
+    return all_results
+
+
+async def reparse_access_layer_fault(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """
+    重新解析接入层通报文件，仅保留横山区 6 个字段，更新数据库。
+    删除旧的接入层通报 report_records 并写入新数据。
+    """
+    if directory is None:
+        directory = settings.watch_dir
+
+    # 获取或创建"接入层通报"报表类型
+    stmt = select(ReportType).where(ReportType.name == "接入层通报")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        report_type = ReportType(name="接入层通报", category="故障")
+        db.add(report_type)
+        await db.flush()
+
+    # 删除旧的接入层通报记录（通过 report_files 关联删除 report_records）
+    old_files_stmt = select(ReportFile.id).where(ReportFile.report_type_id == report_type.id)
+    r2 = await db.execute(old_files_stmt)
+    old_file_ids = [row[0] for row in r2.all()]
+    if old_file_ids:
+        from sqlalchemy import delete as _delete
+        await db.execute(_delete(ReportRecord).where(ReportRecord.report_file_id.in_(old_file_ids)))
+        await db.execute(_delete(ReportFile).where(ReportFile.report_type_id == report_type.id))
+
+    # 在线程池中解析
+    file_results = await asyncio.to_thread(_parse_access_layer_fault_files, directory)
+
+    total_records = 0
+    files_parsed = 0
+    files_skipped = 0
+    all_columns = set(ACCESS_LAYER_FAULT_FIELDS)
+
+    for fr in file_results:
+        filename = fr["filename"]
+        records = fr["records"]
+
+        report_file = ReportFile(
+            report_type_id=report_type.id,
+            filename=filename,
+            file_path=os.path.join(directory, filename),
+            parse_status="parsed",
+            record_count=len(records),
+        )
+        db.add(report_file)
+        await db.flush()
+
+        for row in records:
+            db.add(ReportRecord(report_file_id=report_file.id, data=row))
+
+        total_records += len(records)
+        if records:
+            files_parsed += 1
+        else:
+            files_skipped += 1
+
+    # 更新 column_hint
+    report_type.column_hint = list(all_columns)
+    report_type.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+
+    return {
+        "total_records": total_records,
+        "files_parsed": files_parsed,
+        "files_skipped": files_skipped,
+    }
+
+
+async def get_access_layer_fault_summary(db: AsyncSession) -> dict:
+    """获取接入层通报横山数据概要：故障总数 + 影响业务数 + 不影响业务数 + 告警码名称列表"""
+    stmt = select(ReportType).where(ReportType.name == "接入层通报")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        return {"total": 0, "business_affected": 0, "business_unaffected": 0, "alarm_code_names": [], "latest_time": None, "latest_filename": None}
+
+    # 找到最新的 ReportFile（按 id 降序，id 大的 = 最新入库）
+    latest_file_stmt = (
+        select(ReportFile.id, ReportFile.filename, ReportFile.record_count)
+        .where(ReportFile.report_type_id == report_type.id)
+        .order_by(ReportFile.id.desc())
+        .limit(1)
+    )
+    r2 = await db.execute(latest_file_stmt)
+    latest_row = r2.first()
+    if not latest_row:
+        return {"total": 0, "business_affected": 0, "business_unaffected": 0, "alarm_code_names": [], "latest_time": None, "latest_filename": None}
+
+    latest_file_id, latest_filename, record_count = latest_row
+
+    if record_count == 0:
+        return {"total": 0, "business_affected": 0, "business_unaffected": 0, "alarm_code_names": [], "latest_time": None, "latest_filename": latest_filename}
+
+    # 仅查询最新文件的记录
+    data_stmt = (
+        select(ReportRecord.data)
+        .where(ReportRecord.report_file_id == latest_file_id)
+        .order_by(ReportRecord.id.desc())
+    )
+    r3 = await db.execute(data_stmt)
+    rows = r3.all()
+
+    records = [dict(row[0]) for row in rows]
+
+    business_affected = 0
+    business_unaffected = 0
+    alarm_code_names: list[str] = []
+    seen_names = set()
+
+    for rec in records:
+        # 统计影响业务 / 不影响业务
+        affected = str(rec.get("是否影响业务", "")).strip()
+        if affected == "是":
+            business_affected += 1
+        elif affected == "否":
+            business_unaffected += 1
+
+        # 收集告警码名称（去重）
+        name = rec.get("告警码名称", "")
+        if name and name not in seen_names:
+            alarm_code_names.append(name)
+            seen_names.add(name)
+
+    latest_time = records[0].get("发生时间", "") if records else None
+
+    return {
+        "total": len(records),
+        "business_affected": business_affected,
+        "business_unaffected": business_unaffected,
+        "alarm_code_names": alarm_code_names,
+        "latest_time": latest_time,
+        "latest_filename": latest_filename,
+    }
+
+
+async def get_access_layer_fault_detail(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
+    """分页获取接入层通报横山详细数据：仅最新一份文件的6个字段数据"""
+    stmt = select(ReportType).where(ReportType.name == "接入层通报")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        return {"records": [], "total": 0, "page": page, "page_size": page_size, "latest_filename": None}
+
+    # 找到最新的 ReportFile
+    latest_file_stmt = (
+        select(ReportFile.id, ReportFile.filename, ReportFile.record_count)
+        .where(ReportFile.report_type_id == report_type.id)
+        .order_by(ReportFile.id.desc())
+        .limit(1)
+    )
+    r2 = await db.execute(latest_file_stmt)
+    latest_row = r2.first()
+    if not latest_row:
+        return {"records": [], "total": 0, "page": page, "page_size": page_size, "latest_filename": None}
+
+    latest_file_id, latest_filename, record_count = latest_row
+
+    if record_count == 0:
+        return {"records": [], "total": 0, "page": page, "page_size": page_size, "latest_filename": latest_filename}
+
+    # 仅查询最新文件的记录
+    data_stmt = (
+        select(ReportRecord.data, ReportFile.filename, ReportRecord.created_at)
+        .join(ReportFile, ReportRecord.report_file_id == ReportFile.id)
+        .where(ReportRecord.report_file_id == latest_file_id)
+        .order_by(ReportRecord.id.desc())
+    )
+    r3 = await db.execute(data_stmt)
+    rows = r3.all()
+
+    all_records = []
+    for row in rows:
+        data, filename, created_at = row
+        record = dict(data)
+        record["_source_file"] = filename
+        record["_created_at"] = created_at.isoformat() if created_at else ""
+        all_records.append(record)
+
+    total = len(all_records)
+
+    # 分页
+    offset = (page - 1) * page_size
+    records = all_records[offset:offset + page_size]
+
+    return {
+        "records": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "latest_filename": latest_filename,
+    }
+
+
 async def get_report_records(
     report_type_id: int,
     db: AsyncSession,

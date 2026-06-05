@@ -171,15 +171,15 @@ def _parse_excel_sheet(df, filepath: str, sheet_name: str) -> list[dict]:
             os.path.getmtime(filepath), tz=timezone.utc
         )
 
-    # Build English header mapping (support startswith for date-suffixed columns)
+    # Build English header mapping (support keyword containment for date-suffixed columns)
     en_headers = []
     for cell in df.iloc[header_row_idx].values:
         cell_str = str(cell).strip()
-        # Try exact match first, then startswith via full XLSX_COLUMN_MAP
+        # Try exact match first, then keyword containment via full XLSX_COLUMN_MAP
         mapped = XLSX_COLUMN_MAP.get(cell_str)
         if mapped is None:
             for cn_name, en_name in XLSX_COLUMN_MAP.items():
-                if len(cn_name) > 2 and cell_str.startswith(cn_name):
+                if len(cn_name) > 2 and cn_name in cell_str:
                     mapped = en_name
                     break
         en_headers.append(mapped or cell_str)

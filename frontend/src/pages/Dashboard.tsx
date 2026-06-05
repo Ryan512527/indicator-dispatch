@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -326,6 +326,188 @@ function WirelessOutageCard({ color, onNavigate }: { color: string; onNavigate: 
   )
 }
 
+// ── 接入层通报专用卡片 ──
+function AccessLayerFaultCard({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<AccessLayerFaultSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getAccessLayerFaultSummary()
+      .then(data => setSummary(data as AccessLayerFaultSummary))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '16px 20px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        display: 'flex', flexDirection: 'column',
+        minHeight: 160,
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', marginBottom: 10 }}>接入层通报</div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 12 }}>
+          加载中...
+        </div>
+      </div>
+    )
+  }
+
+  const total = summary?.total ?? 0
+  const businessAffected = summary?.business_affected ?? 0
+  const businessUnaffected = summary?.business_unaffected ?? 0
+  const alarmCodeNames = summary?.alarm_code_names ?? []
+  const latestTime = summary?.latest_time
+  const latestFilename = summary?.latest_filename
+
+  return (
+    <div
+      onClick={() => onNavigate({ name: 'access-layer-fault-detail' })}
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        cursor: 'pointer',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        transition: 'transform 0.15s, box-shadow 0.15s',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'
+      }}
+    >
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>接入层通报</div>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 10,
+            background: '#fef2f2',
+            color: '#ef4444',
+            fontSize: 11,
+            fontWeight: 600,
+          }}>
+            横山
+          </span>
+        </div>
+        <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
+          {latestTime ? fmt(latestTime) : '—'}
+        </span>
+      </div>
+
+      {/* 核心数字：总故障数 */}
+      <div style={{ textAlign: 'center', marginBottom: 8 }}>
+        <div style={{ fontSize: 42, fontWeight: 700, color: total > 0 ? '#ef4444' : '#22c55e', lineHeight: 1.1 }}>
+          {total}
+        </div>
+        <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+          当前接入层故障数
+        </div>
+      </div>
+
+      {/* 影响/不影响业务 双指标 */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        <div style={{
+          flex: 1,
+          background: '#fef2f2',
+          borderRadius: 8,
+          padding: '8px 10px',
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#ef4444', lineHeight: 1.2 }}>
+            {businessAffected}
+          </div>
+          <div style={{ fontSize: 10, color: '#dc2626' }}>
+            影响业务
+          </div>
+        </div>
+        <div style={{
+          flex: 1,
+          background: '#f0fdf4',
+          borderRadius: 8,
+          padding: '8px 10px',
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#22c55e', lineHeight: 1.2 }}>
+            {businessUnaffected}
+          </div>
+          <div style={{ fontSize: 10, color: '#16a34a' }}>
+            不影响业务
+          </div>
+        </div>
+      </div>
+
+      {/* 告警码名称列表 */}
+      {alarmCodeNames.length > 0 ? (
+        <div style={{
+          flex: 1,
+          background: '#fafafa',
+          borderRadius: 8,
+          padding: '10px 12px',
+          marginBottom: 8,
+        }}>
+          <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>告警码类型</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 6px' }}>
+            {alarmCodeNames.slice(0, 6).map((name, i) => (
+              <span key={i} style={{
+                display: 'inline-block',
+                padding: '2px 8px',
+                borderRadius: 4,
+                background: '#fff',
+                border: '1px solid #fee2e2',
+                color: '#dc2626',
+                fontSize: 11,
+                whiteSpace: 'nowrap',
+              }}>
+                {name}
+              </span>
+            ))}
+            {alarmCodeNames.length > 6 && (
+              <span style={{ fontSize: 11, color: '#999', alignSelf: 'center' }}>
+                +{alarmCodeNames.length - 6} 种
+              </span>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          flex: 1,
+          background: '#f0fdf4',
+          borderRadius: 8,
+          padding: '10px 12px',
+          marginBottom: 8,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <span style={{ fontSize: 12, color: '#22c55e' }}>✅ 当前无接入层故障</span>
+        </div>
+      )}
+
+      {/* 底部信息 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename || ''}>
+            📄 {latestFilename || '—'}
+          </span>
+          <span>点击查看详情 →</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 皮站故障专用卡片 ──
 function PisiteFaultCard({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
   const [summary, setSummary] = useState<PisiteFaultSummary | null>(null)
@@ -545,6 +727,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 // 皮站故障清单用专用卡片
                 if (rt.name === '皮站故障清单') {
                   return <PisiteFaultCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
+                // 接入层通报用专用卡片
+                if (rt.name === '接入层通报') {
+                  return <AccessLayerFaultCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
                 return <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
               })}
