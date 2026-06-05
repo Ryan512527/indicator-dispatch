@@ -4,12 +4,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import init_db, engine
 from app.api.routes import router as api_router
 import asyncio
+import logging
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+)
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     task = asyncio.create_task(start_background_services())
+    logger.info("后台服务启动任务已创建")
     yield
     task.cancel()
     await engine.dispose()
@@ -36,6 +46,7 @@ async def start_background_services():
     from app.watcher.service import FileWatcher
     from app.core.config import settings
 
+    logger.info(f"正在启动文件监听服务，监听目录: {settings.watch_dir}")
     watcher = FileWatcher(settings.watch_dir)
     await watcher.start()
 
