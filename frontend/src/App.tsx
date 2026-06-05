@@ -1,0 +1,36 @@
+import { useState } from 'react'
+import { Layout } from './components/Layout'
+import { Dashboard } from './pages/Dashboard'
+import { OutageDetail } from './pages/OutageDetail'
+import { AIChat } from './pages/AIChat'
+import { ReportDetail } from './pages/ReportDetail'
+import type { Page } from './types'
+
+
+export default function App() {
+  const [page, setPage] = useState<Page>({ name: 'dashboard' })
+
+  return (
+    <Layout
+      currentPath={
+        page.name === 'dashboard' ? '/dashboard' :
+        page.name === 'ai-chat' ? '/ai' :
+        page.name === 'report-detail' ? `/reports/${page.params?.id}` :
+        ''
+      }
+      onNavigate={(p: string | Page) => {
+        if (typeof p === 'string') {
+          if (p === '/dashboard') setPage({ name: 'dashboard' })
+          else if (p === '/ai') setPage({ name: 'ai-chat' })
+        } else {
+          setPage(p)
+        }
+      }}
+    >
+      {page.name === 'dashboard' && <Dashboard onNavigate={p => setPage(p)} />}
+      {page.name === 'detail' && <OutageDetail params={page.params || {}} onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'ai-chat' && <AIChat />}
+      {page.name === 'report-detail' && <ReportDetail reportTypeId={page.params?.id || 0} />}
+    </Layout>
+  )
+}
