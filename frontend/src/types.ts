@@ -154,4 +154,5 @@ export interface DailyReportBacklogRecord {
   ['装机历时(h)']: string;
   时长提醒: string;
   用户品牌: string;
+  数据来源: string;
 }

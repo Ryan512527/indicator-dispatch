@@ -20,12 +20,20 @@ function getWarningStyle(label: string) {
   return { background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0' }
 }
 
+function getSourceBadge(source: string) {
+  if (source === 'FTTR积压') {
+    return { background: '#fdf2f8', color: '#be185d', label: 'FTTR' }
+  }
+  return { background: '#eff6ff', color: '#2563eb', label: '宽带' }
+}
+
 export function DailyReportDetail({ onBack }: { onBack: () => void }) {
   const [records, setRecords] = useState<DailyReportBacklogRecord[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [sourceFilter, setSourceFilter] = useState<string>('all') // 'all' | '宽带积压' | 'FTTR积压'
   const pageSize = 50
 
   useEffect(() => {
@@ -50,18 +58,20 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
     }
   }
 
-  // 前端搜索过滤（按宽带账号/施工地址/施工人姓名）
-  const filteredRecords = searchQuery.trim()
-    ? records.filter(r => {
-        const q = searchQuery.toLowerCase()
-        return (
-          (r['宽带账号'] || '').toLowerCase().includes(q) ||
-          (r['施工地址'] || '').toLowerCase().includes(q) ||
-          (r['施工人姓名'] || '').toLowerCase().includes(q) ||
-          (r['用户品牌'] || '').toLowerCase().includes(q)
-        )
-      })
-    : records
+  // 前端搜索过滤（按宽带账号/施工地址/施工人姓名）+ 来源筛选
+  const filteredRecords = records.filter(r => {
+    // 来源筛选
+    if (sourceFilter !== 'all' && r['数据来源'] !== sourceFilter) return false
+    // 搜索过滤
+    if (!searchQuery.trim()) return true
+    const q = searchQuery.toLowerCase()
+    return (
+      (r['宽带账号'] || '').toLowerCase().includes(q) ||
+      (r['施工地址'] || '').toLowerCase().includes(q) ||
+      (r['施工人姓名'] || '').toLowerCase().includes(q) ||
+      (r['用户品牌'] || '').toLowerCase().includes(q)
+    )
+  })
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
@@ -69,6 +79,8 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
   const over48h = records.filter(r => r['时长提醒'] === '超48h').length
   const over24h = records.filter(r => r['时长提醒'] === '超24h').length
   const over8h = records.filter(r => r['时长提醒'] === '超8h').length
+  const broadbandCount = records.filter(r => r['数据来源'] === '宽带积压').length
+  const fttrCount = records.filter(r => r['数据来源'] === 'FTTR积压').length
 
   return (
     <div>
@@ -109,8 +121,30 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
             横山
           </span>
         </div>
-        <span style={{ fontSize: 13, color: '#999' }}>
-          共 {total} 条积压记录
+        <span style={{ fontSize: 13, color: '#999', display: 'flex', gap: 16, alignItems: 'center' }}>
+          <span>共 {total} 条</span>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 4,
+            background: '#eff6ff',
+            color: '#2563eb',
+            fontSize: 12,
+            fontWeight: 500,
+          }}>
+            宽带 {broadbandCount}
+          </span>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 4,
+            background: '#fdf2f8',
+            color: '#be185d',
+            fontSize: 12,
+            fontWeight: 500,
+          }}>
+            FTTR {fttrCount}
+          </span>
         </span>
       </div>
 
@@ -161,6 +195,39 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
         />
       </div>
 
+      {/* 来源筛选 */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        {(['all', '宽带积压', 'FTTR积压'] as const).map(src => {
+          const isActive = sourceFilter === src
+          const label = src === 'all' ? '全部来源' : src === '宽带积压' ? '📡 宽带积压' : '📶 FTTR积压'
+          const count = src === 'all' ? total : src === '宽带积压' ? broadbandCount : fttrCount
+          const badge = src === 'FTTR积压'
+            ? { bg: '#fdf2f8', color: '#be185d', border: '#f9a8d4' }
+            : src === '宽带积压'
+            ? { bg: '#eff6ff', color: '#2563eb', border: '#93c5fd' }
+            : { bg: '#f8fafc', color: '#64748b', border: '#cbd5e1' }
+          return (
+            <button
+              key={src}
+              onClick={() => setSourceFilter(src)}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 6,
+                border: `1.5px solid ${isActive ? badge.border : '#e5e7eb'}`,
+                background: isActive ? badge.bg : '#fff',
+                color: badge.color,
+                fontSize: 12,
+                fontWeight: isActive ? 600 : 400,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              {label} ({count})
+            </button>
+          )
+        })}
+      </div>
+
       {/* 数据表格 */}
       <div style={{
         background: '#fff',
@@ -187,7 +254,7 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
                   {[
                     '所属区县', '宽带账号', '服务', '施工地址', '施工人姓名',
                     '工单状态', '受理时间', '到装维时间', '完成时限',
-                    '装机历时(h)', '时长提醒', '用户品牌',
+                    '装机历时(h)', '时长提醒', '用户品牌', '数据来源',
                   ].map(col => (
                     <th key={col} style={{
                       padding: '10px 8px',
@@ -263,6 +330,24 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
                         )}
                       </td>
                       <td style={{ padding: '8px', whiteSpace: 'nowrap', color: '#374151', fontSize: 12 }}>{row['用户品牌'] || '—'}</td>
+                      <td style={{ padding: '8px', textAlign: 'center' }}>
+                        {(() => {
+                          const sb = getSourceBadge(row['数据来源'] || '')
+                          return (
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: 4,
+                              fontSize: 11,
+                              fontWeight: 600,
+                              background: sb.background,
+                              color: sb.color,
+                            }}>
+                              {sb.label}
+                            </span>
+                          )
+                        })()}
+                      </td>
                     </tr>
                   )
                 })}

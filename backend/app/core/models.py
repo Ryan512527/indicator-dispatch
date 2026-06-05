@@ -148,4 +148,5 @@ class DailyReportBacklog(Base):
     backlog_hours = Column(String(50), comment="积压时长h")
     install_duration_hours = Column(String(50), comment="装机历时(h)，完成时限 - 到装维时间")
     user_brand = Column(String(50), comment="用户品牌")
+    data_source = Column(String(20), comment="数据来源：宽带积压 / FTTR积压")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

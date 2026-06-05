@@ -1768,9 +1768,17 @@ def _parse_daily_report_files(directory: str) -> dict:
         # ── 3. 解析"宽带积压" sheet ──
         if "宽带积压" in wb.sheetnames:
             ws = wb["宽带积压"]
-            backlog_records = _parse_backlog_sheet(ws, filename)
+            backlog_records = _parse_backlog_sheet(ws, filename, source_label="宽带积压")
         else:
             logger.warning(f"日报文件 {filename} 缺少'宽带积压'sheet")
+
+        # ── 4. 解析"FTTR积压" sheet ──
+        if "FTTR积压" in wb.sheetnames:
+            ws = wb["FTTR积压"]
+            fttr_records = _parse_backlog_sheet(ws, filename, source_label="FTTR积压")
+            backlog_records.extend(fttr_records)
+        else:
+            logger.warning(f"日报文件 {filename} 缺少'FTTR积压'sheet")
 
         wb.close()
 
@@ -1863,11 +1871,11 @@ def _parse_category_sheet(ws, sheet_label: str, target_fields: list[str]) -> dic
     return result
 
 
-def _parse_backlog_sheet(ws, filename: str) -> list[dict]:
+def _parse_backlog_sheet(ws, filename: str, source_label: str = "宽带积压") -> list[dict]:
     """
-    解析"宽带积压"sheet，流式读取，过滤横山区数据。
+    解析"宽带积压"或"FTTR积压"sheet，流式读取，过滤横山区数据。
     计算装机历时(h) = 完成时限 - 到装维时间。
-    返回 [record, ...]
+    返回 [record, ...]，每条记录带 data_source 标记。
     """
     from datetime import datetime as _dt
 
@@ -1889,7 +1897,7 @@ def _parse_backlog_sheet(ws, filename: str) -> list[dict]:
             break
 
     if header_row is None:
-        logger.warning(f"日报宽带积压 sheet 未检测到表头行: {filename}")
+        logger.warning(f"日报{source_label} sheet 未检测到表头行: {filename}")
         return []
 
     # 建立列映射（字段名匹配，>=2字符防止单字符误匹配）
@@ -1918,22 +1926,27 @@ def _parse_backlog_sheet(ws, filename: str) -> list[dict]:
                 cell_str = str(cell).strip()
                 if alias in cell_str:
                     col_map[field] = idx
-                    logger.info(f"日报宽带积压: '{field}' 语义回退到 '{alias}' col={idx}")
+                    logger.info(f"日报{source_label}: '{field}' 语义回退到 '{alias}' col={idx}")
                     break
 
     # 验证关键字段
     missing = [f for f in ["所属区县", "宽带账号"] if f not in col_map]
     if missing:
-        logger.warning(f"日报宽带积压 sheet 缺少关键字段: {missing}")
+        logger.warning(f"日报{source_label} sheet 缺少关键字段: {missing}")
         return []
 
     # "积压时长h" 特殊处理：表头单元格为合并残留（None或数字），
     # 查找 col1 位置（通常是积压时长数值列，值为数字型小时数）
     if "积压时长h" not in col_map:
-        # 检查 col1：如果表头为 None 且数据行为数值，则认定为积压时长列
-        if len(header_row) > 1 and header_row[1] is None:
+        # 检查 col1：如果表头为 None/数字 且数据行为数值，则认定为积压时长列
+        if len(header_row) > 1 and (header_row[1] is None or isinstance(header_row[1], (int, float))):
             col_map["积压时长h"] = 1
-            logger.info("日报宽带积压: '积压时长h' 通过 col1 (合并单元格) 检测到")
+            logger.info(f"日报{source_label}: '积压时长h' 通过 col1 (合并单元格) 检测到")
+        elif source_label == "FTTR积压" and len(header_row) > 2:
+            # FTTR积压特殊处理：col1为积压天数（小数），col2为积压时长h，
+            # col3为积压时长标签（如"48小时以上"）。优先使用col2。
+            col_map["积压时长h"] = 2
+            logger.info(f"日报{source_label}: '积压时长h' 通过 col2 (FTTR合并单元格回退) 检测到")
 
     max_col_idx = max(col_map.values())
 
@@ -2009,11 +2022,12 @@ def _parse_backlog_sheet(ws, filename: str) -> list[dict]:
             "装机历时(h)": install_duration,
             "时长提醒": duration_warning,
             "用户品牌": _get("用户品牌"),
+            "数据来源": source_label,
         }
 
         backlog_records.append(record)
 
-    logger.info(f"日报宽带积压横山: {filename} -> {len(backlog_records)} 条")
+    logger.info(f"日报{source_label}横山: {filename} -> {len(backlog_records)} 条")
     return backlog_records
 
 
@@ -2104,6 +2118,7 @@ async def reparse_daily_report(db: AsyncSession, directory: Optional[str] = None
             backlog_hours=rec.get("积压时长h", ""),
             install_duration_hours=rec.get("装机历时(h)", ""),
             user_brand=rec.get("用户品牌", ""),
+            data_source=rec.get("数据来源", ""),
         )
         db.add(drb)
         backlog_count += 1
@@ -2209,6 +2224,7 @@ async def get_daily_report_backlog(
             "装机历时(h)": row.install_duration_hours,
             "时长提醒": duration_warning,
             "用户品牌": row.user_brand,
+            "数据来源": row.data_source,
         })
 
     return {
