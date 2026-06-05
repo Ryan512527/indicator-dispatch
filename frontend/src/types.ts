@@ -61,7 +61,8 @@ export type Page =
   | { name: "report-detail"; params: { id: number; name: string } }
   | { name: "wireless-outage-detail" }
   | { name: "pisite-fault-detail" }
-  | { name: "access-layer-fault-detail" };
+  | { name: "access-layer-fault-detail" }
+  | { name: "enterprise-broadband-backlog" };
 
 export interface WirelessOutageSummary {
   total: number;
@@ -89,4 +90,32 @@ export interface AccessLayerFaultSummary {
   alarm_code_names: string[];
   latest_time: string | null;
   latest_filename: string | null;
+}
+
+export interface EnterpriseBroadbandSummary {
+  district: string;
+  month_accept: string;
+  month_archive: string;
+  month_success_rate: string;
+  month_reject: string;
+  total_backlog: string;
+  day_accept: string;
+  day_archive: string;
+  day_success_rate: string;
+  day_reject: string;
+  day_backlog: string;
+  report_date: string;
+}
+
+export interface EnterpriseBroadbandBacklogRecord {
+  id: number;
+  district: string;
+  account: string;
+  address: string;
+  worker_name: string;
+  accept_time: string;
+  to_install_time: string;
+  deadline: string;
+  install_duration_hours: string;
+  user_brand: string;
 }

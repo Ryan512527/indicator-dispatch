@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -655,6 +655,157 @@ function PisiteFaultCard({ color, onNavigate }: { color: string; onNavigate: (p:
   )
 }
 
+// ── 企宽装机通报专用卡片 ──
+function EnterpriseBroadbandCard({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<EnterpriseBroadbandSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getEnterpriseBroadbandSummary()
+      .then(data => setSummary(data as EnterpriseBroadbandSummary))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '16px 20px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        display: 'flex', flexDirection: 'column',
+        minHeight: 280,
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', marginBottom: 10 }}>企宽装机通报</div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 12 }}>
+          加载中...
+        </div>
+      </div>
+    )
+  }
+
+  const reportDate = summary?.report_date || ''
+  const fmtPercent = (v: string) => {
+    const n = parseFloat(v)
+    if (isNaN(n)) return v
+    return (n * 100).toFixed(1) + '%'
+  }
+
+  return (
+    <div
+      onClick={() => onNavigate({ name: 'enterprise-broadband-backlog' })}
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        cursor: 'pointer',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        transition: 'transform 0.15s, box-shadow 0.15s',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'
+      }}
+    >
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>企宽装机通报</div>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 10,
+            background: '#eff6ff',
+            color: '#3b82f6',
+            fontSize: 11,
+            fontWeight: 600,
+          }}>
+            横山
+          </span>
+        </div>
+        <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
+          {reportDate || '—'}
+        </span>
+      </div>
+
+      {/* 当月指标 */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 8, borderBottom: '1px solid #f0f0f0', paddingBottom: 4 }}>
+          📊 当月指标
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+          {[
+            { label: '受理量', value: summary?.month_accept || '—', key: 'month_accept' },
+            { label: '归档量', value: summary?.month_archive || '—', key: 'month_archive' },
+            { label: '成功率', value: summary?.month_success_rate ? fmtPercent(summary.month_success_rate) : '—', key: 'month_success_rate' },
+            { label: '退单量', value: summary?.month_reject || '—', key: 'month_reject' },
+            { label: '积压总量', value: summary?.total_backlog || '—', key: 'total_backlog' },
+          ].map(item => (
+            <div key={item.key} style={{
+              textAlign: 'center',
+              background: '#f8fafc',
+              borderRadius: 6,
+              padding: '6px 4px',
+            }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#1e40af', lineHeight: 1.2 }}>
+                {item.value}
+              </div>
+              <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+                {item.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 当日指标 */}
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 8, borderBottom: '1px solid #f0f0f0', paddingBottom: 4 }}>
+          📋 当日指标
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+          {[
+            { label: '受理量', value: summary?.day_accept || '—', key: 'day_accept' },
+            { label: '归档量', value: summary?.day_archive || '—', key: 'day_archive' },
+            { label: '成功率', value: summary?.day_success_rate ? fmtPercent(summary.day_success_rate) : '—', key: 'day_success_rate' },
+            { label: '退单量', value: summary?.day_reject || '—', key: 'day_reject' },
+            { label: '当日积压', value: summary?.day_backlog || '—', key: 'day_backlog' },
+          ].map(item => (
+            <div key={item.key} style={{
+              textAlign: 'center',
+              background: '#f0fdf4',
+              borderRadius: 6,
+              padding: '6px 4px',
+            }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#166534', lineHeight: 1.2 }}>
+                {item.value}
+              </div>
+              <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+                {item.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 底部 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>📄 {reportDate ? `通报 ${reportDate}` : '—'}</span>
+          <span style={{ color: '#3b82f6' }}>点击查看积压清单 →</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 分类报表看板 ──
 function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [reportTypes, setReportTypes] = useState<ReportType[]>([])
@@ -731,6 +882,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 // 接入层通报用专用卡片
                 if (rt.name === '接入层通报') {
                   return <AccessLayerFaultCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
+                // 企宽装机通报用专用卡片
+                if (rt.name === '企宽装机通报') {
+                  return <EnterpriseBroadbandCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
                 return <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
               })}

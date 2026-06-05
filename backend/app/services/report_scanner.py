@@ -1355,6 +1355,319 @@ async def get_access_layer_fault_detail(
     }
 
 
+# ── 企宽装机通报横山数据专用处理 ──
+
+def _parse_enterprise_broadband_files(directory: str) -> dict:
+    """
+    解析最新的"企宽装机通报"文件：
+    1. 从"移动汇报"sheet 提取横山汇总指标
+    2. 从"积压"sheet 提取横山积压清单（计算装机历时）
+    返回 {"summary": dict, "backlog": [dict], "filename": str, "report_date": str}
+    """
+    from datetime import datetime as _dt
+
+    # 找到最新的企宽装机通报文件
+    matching: list[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("~$") or f.startswith("."):
+                continue
+            if "企宽装机通报" in f and f.lower().endswith((".xlsx", ".xls")):
+                matching.append(os.path.join(root, f))
+
+    if not matching:
+        return {"summary": None, "backlog": [], "filename": None, "report_date": None}
+
+    # 按修改时间排序，取最新
+    matching.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+    latest_file = matching[0]
+    filename = os.path.basename(latest_file)
+
+    try:
+        wb = openpyxl.load_workbook(latest_file, data_only=True)
+
+        # ── 1. 解析"移动汇报"sheet ──
+        summary = None
+        report_date = None
+        if "移动汇报" in wb.sheetnames:
+            ws = wb["移动汇报"]
+            rows_data = list(ws.iter_rows(values_only=True))
+
+            # 提取标题中的日期
+            if rows_data and rows_data[0][0]:
+                title = str(rows_data[0][0])
+                date_match = re.search(r'(\d+)月(\d+)日', title)
+                if date_match:
+                    now = _dt.now()
+                    report_date = f"{now.year}-{date_match.group(1).zfill(2)}-{date_match.group(2).zfill(2)}"
+
+            # 查找横山行（数据从第4行开始，列: 0=县区, 1-10=指标值）
+            for row in rows_data[4:]:
+                if row[0] and str(row[0]).strip() == "横山县":
+                    summary = {
+                        "district": "横山",
+                        "month_accept": str(row[1]) if row[1] is not None else "",
+                        "month_archive": str(row[2]) if row[2] is not None else "",
+                        "month_success_rate": str(row[3]) if row[3] is not None else "",
+                        "month_reject": str(row[4]) if row[4] is not None else "",
+                        "total_backlog": str(row[5]) if row[5] is not None else "",
+                        "day_accept": str(row[6]) if row[6] is not None else "",
+                        "day_archive": str(row[7]) if row[7] is not None else "",
+                        "day_success_rate": str(row[8]) if row[8] is not None else "",
+                        "day_reject": str(row[9]) if row[9] is not None else "",
+                        "day_backlog": str(row[10]) if row[10] is not None else "",
+                    }
+                    break
+
+        # ── 2. 解析"积压"sheet ──
+        backlog_records: list[dict] = []
+        if "积压" in wb.sheetnames:
+            ws2 = wb["积压"]
+            rows_data2 = list(ws2.iter_rows(values_only=True))
+
+            if not rows_data2:
+                wb.close()
+                return {"summary": summary, "backlog": [], "filename": filename, "report_date": report_date}
+
+            # 表头在第0行，找列索引
+            header_row = rows_data2[0]
+            col_map: dict[str, int] = {}
+            target_fields = ["所属区县", "宽带账号", "施工地址", "施工人姓名",
+                             "受理时间", "到装维时间", "完成时限", "用户品牌"]
+            for target in target_fields:
+                for idx, cell in enumerate(header_row):
+                    if cell and str(cell).strip() == target:
+                        col_map[target] = idx
+                        break
+
+            # 确保所有必要字段都找到了
+            missing = [f for f in target_fields if f not in col_map]
+            if missing:
+                logger.warning(f"企宽装机通报积压sheet缺少字段: {missing}")
+
+            # 提取横山数据
+            for row in rows_data2[1:]:
+                if not row or len(row) <= max(col_map.values(), default=0):
+                    continue
+
+                district_val = str(row[col_map.get("所属区县", 0)]).strip() if col_map.get("所属区县") is not None and len(row) > col_map["所属区县"] and row[col_map["所属区县"]] else ""
+                if district_val != "横山县":
+                    continue
+
+                # 计算装机历时(h) = 完成时限 - 到装维时间
+                install_duration = ""
+                deadline_str = str(row[col_map["完成时限"]]) if "完成时限" in col_map and row[col_map["完成时限"]] else ""
+                to_install_str = str(row[col_map["到装维时间"]]) if "到装维时间" in col_map and row[col_map["到装维时间"]] else ""
+
+                if deadline_str and to_install_str:
+                    try:
+                        deadline_dt = _dt.strptime(deadline_str[:19], "%Y-%m-%d %H:%M:%S")
+                        to_install_dt = _dt.strptime(to_install_str[:19], "%Y-%m-%d %H:%M:%S")
+                        diff = deadline_dt - to_install_dt
+                        hours = diff.total_seconds() / 3600.0
+                        install_duration = f"{hours:.2f}"
+                    except (ValueError, TypeError):
+                        install_duration = ""
+
+                record = {
+                    "district": district_val,
+                    "account": str(row[col_map["宽带账号"]]) if "宽带账号" in col_map and row[col_map["宽带账号"]] else "",
+                    "address": str(row[col_map["施工地址"]]) if "施工地址" in col_map and row[col_map["施工地址"]] else "",
+                    "worker_name": str(row[col_map["施工人姓名"]]) if "施工人姓名" in col_map and row[col_map["施工人姓名"]] else "",
+                    "accept_time": str(row[col_map["受理时间"]]) if "受理时间" in col_map and row[col_map["受理时间"]] else "",
+                    "to_install_time": to_install_str,
+                    "deadline": deadline_str,
+                    "install_duration_hours": install_duration,
+                    "user_brand": str(row[col_map["用户品牌"]]) if "用户品牌" in col_map and row[col_map["用户品牌"]] else "",
+                }
+                backlog_records.append(record)
+
+            logger.info(f"企宽装机通报横山积压: {filename} -> {len(backlog_records)} 条")
+
+        wb.close()
+        return {
+            "summary": summary,
+            "backlog": backlog_records,
+            "filename": filename,
+            "report_date": report_date,
+        }
+
+    except Exception as e:
+        logger.error(f"解析企宽装机通报失败 {filename}: {e}", exc_info=True)
+        return {"summary": None, "backlog": [], "filename": filename, "report_date": None}
+
+
+async def reparse_enterprise_broadband(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """
+    重新解析企宽装机通报文件，提取横山汇总指标和积压清单，更新数据库。
+    删除旧数据并写入新数据。
+    """
+    if directory is None:
+        directory = settings.watch_dir
+
+    # 在线程池中解析
+    result = await asyncio.to_thread(_parse_enterprise_broadband_files, directory)
+
+    # ── 写入汇总表 ──
+    # 删除旧汇总数据
+    from app.core.models import EnterpriseBroadbandSummary, EnterpriseBroadbandBacklog
+    from sqlalchemy import delete as _delete
+    await db.execute(_delete(EnterpriseBroadbandSummary))
+    await db.execute(_delete(EnterpriseBroadbandBacklog))
+
+    summary_count = 0
+    if result["summary"]:
+        s = result["summary"]
+        ebs = EnterpriseBroadbandSummary(
+            report_date=result["report_date"] or "",
+            district=s["district"],
+            month_accept=s["month_accept"],
+            month_archive=s["month_archive"],
+            month_success_rate=s["month_success_rate"],
+            month_reject=s["month_reject"],
+            total_backlog=s["total_backlog"],
+            day_accept=s["day_accept"],
+            day_archive=s["day_archive"],
+            day_success_rate=s["day_success_rate"],
+            day_reject=s["day_reject"],
+            day_backlog=s["day_backlog"],
+        )
+        db.add(ebs)
+        summary_count = 1
+
+    # ── 写入积压清单 ──
+    # 先获取或创建"企宽装机通报"报表类型用于关联 ReportFile
+    stmt = select(ReportType).where(ReportType.name == "企宽装机通报")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        report_type = ReportType(name="企宽装机通报", category="装维生产")
+        db.add(report_type)
+        await db.flush()
+
+    # 删除旧的企宽装机通报 report_files/report_records
+    old_files_stmt = select(ReportFile.id).where(ReportFile.report_type_id == report_type.id)
+    r2 = await db.execute(old_files_stmt)
+    old_file_ids = [row[0] for row in r2.all()]
+    if old_file_ids:
+        await db.execute(_delete(ReportRecord).where(ReportRecord.report_file_id.in_(old_file_ids)))
+        await db.execute(_delete(ReportFile).where(ReportFile.report_type_id == report_type.id))
+
+    # 创建 ReportFile（用于积压清单关联）
+    report_file = ReportFile(
+        report_type_id=report_type.id,
+        filename=result["filename"] or "",
+        file_path=os.path.join(directory, result["filename"] or ""),
+        parse_status="parsed",
+        record_count=len(result["backlog"]),
+    )
+    db.add(report_file)
+    await db.flush()
+
+    backlog_count = 0
+    for rec in result["backlog"]:
+        ebb = EnterpriseBroadbandBacklog(
+            report_file_id=report_file.id,
+            district=rec["district"],
+            account=rec["account"],
+            address=rec["address"],
+            worker_name=rec["worker_name"],
+            accept_time=rec["accept_time"],
+            to_install_time=rec["to_install_time"],
+            deadline=rec["deadline"],
+            install_duration_hours=rec["install_duration_hours"],
+            user_brand=rec["user_brand"],
+        )
+        db.add(ebb)
+        backlog_count += 1
+
+    await db.commit()
+
+    return {
+        "summary_parsed": summary_count,
+        "backlog_count": backlog_count,
+        "filename": result["filename"],
+        "report_date": result["report_date"],
+    }
+
+
+async def get_enterprise_broadband_summary(db: AsyncSession) -> dict:
+    """获取企宽装机通报横山卡片指标"""
+    from app.core.models import EnterpriseBroadbandSummary
+    stmt = select(EnterpriseBroadbandSummary).order_by(EnterpriseBroadbandSummary.id.desc()).limit(1)
+    r = await db.execute(stmt)
+    row = r.scalar_one_or_none()
+    if not row:
+        return {
+            "district": "横山",
+            "month_accept": "", "month_archive": "", "month_success_rate": "",
+            "month_reject": "", "total_backlog": "",
+            "day_accept": "", "day_archive": "", "day_success_rate": "",
+            "day_reject": "", "day_backlog": "",
+            "report_date": "",
+        }
+    return {
+        "district": row.district,
+        "month_accept": row.month_accept,
+        "month_archive": row.month_archive,
+        "month_success_rate": row.month_success_rate,
+        "month_reject": row.month_reject,
+        "total_backlog": row.total_backlog,
+        "day_accept": row.day_accept,
+        "day_archive": row.day_archive,
+        "day_success_rate": row.day_success_rate,
+        "day_reject": row.day_reject,
+        "day_backlog": row.day_backlog,
+        "report_date": row.report_date,
+    }
+
+
+async def get_enterprise_broadband_backlog(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
+    """分页获取企宽装机通报横山积压清单"""
+    from app.core.models import EnterpriseBroadbandBacklog
+    from sqlalchemy import func as _func
+
+    count_stmt = select(_func.count(EnterpriseBroadbandBacklog.id))
+    r = await db.execute(count_stmt)
+    total = r.scalar() or 0
+
+    offset = (page - 1) * page_size
+    data_stmt = (
+        select(EnterpriseBroadbandBacklog)
+        .order_by(EnterpriseBroadbandBacklog.id.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    r2 = await db.execute(data_stmt)
+    rows = r2.scalars().all()
+
+    records = []
+    for row in rows:
+        records.append({
+            "id": row.id,
+            "district": row.district,
+            "account": row.account,
+            "address": row.address,
+            "worker_name": row.worker_name,
+            "accept_time": row.accept_time,
+            "to_install_time": row.to_install_time,
+            "deadline": row.deadline,
+            "install_duration_hours": row.install_duration_hours,
+            "user_brand": row.user_brand,
+        })
+
+    return {
+        "records": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
 async def get_report_records(
     report_type_id: int,
     db: AsyncSession,

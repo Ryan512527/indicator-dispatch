@@ -382,3 +382,36 @@ async def pisite_fault_reparse(
     from app.services.report_scanner import reparse_pisite_fault
     result = await reparse_pisite_fault(db, directory)
     return {"report_type": "皮站故障清单", **result}
+
+
+# ── 企宽装机通报横山专用 API ──
+
+@router.get("/reports/enterprise-broadband/summary")
+async def enterprise_broadband_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取企宽装机通报横山卡片汇总指标（10个字段）"""
+    from app.services.report_scanner import get_enterprise_broadband_summary
+    return await get_enterprise_broadband_summary(db)
+
+
+@router.get("/reports/enterprise-broadband/backlog")
+async def enterprise_broadband_backlog(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """分页获取企宽装机通报横山积压清单"""
+    from app.services.report_scanner import get_enterprise_broadband_backlog
+    return await get_enterprise_broadband_backlog(db, page, page_size)
+
+
+@router.post("/reports/enterprise-broadband/reparse")
+async def enterprise_broadband_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析企宽装机通报文件，提取横山汇总指标和积压清单"""
+    from app.services.report_scanner import reparse_enterprise_broadband
+    result = await reparse_enterprise_broadband(db, directory)
+    return {"report_type": "企宽装机通报", **result}

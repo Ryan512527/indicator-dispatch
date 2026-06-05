@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -143,6 +143,27 @@ export const api = {
 
   reparseAccessLayerFault: async () => {
     const res = await fetch(`${BASE}/reports/access-layer/reparse`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
+    return res.json();
+  },
+
+  // ── 企宽装机通报横山专用 APIs ──
+  getEnterpriseBroadbandSummary: () =>
+    fetchJson<EnterpriseBroadbandSummary>('/reports/enterprise-broadband/summary'),
+
+  getEnterpriseBroadbandBacklog: (page = 1, pageSize = 50) =>
+    fetchJson<{
+      records: EnterpriseBroadbandBacklogRecord[];
+      total: number;
+      page: number;
+      page_size: number;
+    }>('/reports/enterprise-broadband/backlog', {
+      page: String(page),
+      page_size: String(pageSize),
+    }),
+
+  reparseEnterpriseBroadband: async () => {
+    const res = await fetch(`${BASE}/reports/enterprise-broadband/reparse`, { method: 'POST' });
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
     return res.json();
   },
