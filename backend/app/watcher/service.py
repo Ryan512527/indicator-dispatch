@@ -13,12 +13,12 @@ SUPPORTED_EXTENSIONS = {".csv", ".json", ".xlsx", ".xls", ".xml"}
 # 按关键词长度降序排列，避免短关键词误匹配长关键词
 # key: 文件名匹配关键词  →  value: 专用 reparse API 路径段
 SPECIALIZED_REPORTS = [
-    ("全市装维工作量统计", "city-workload"),
-    ("无线退服清单",       "wireless-outage"),
-    ("企宽装机通报",       "enterprise-broadband"),
-    ("皮站故障清单",       "pisite-fault"),
-    ("接入层通报",         "access-layer"),
-    ("日报",               "daily-report"),
+    ("装维工作量", "city-workload"),
+    ("无线退服",  "wireless-outage"),
+    ("企宽装机",  "enterprise-broadband"),
+    ("皮站故障",  "pisite-fault"),
+    ("接入层",    "access-layer"),
+    ("日报",      "daily-report"),
 ]
 
 
