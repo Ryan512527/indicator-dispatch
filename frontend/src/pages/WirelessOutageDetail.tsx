@@ -128,8 +128,8 @@ export function WirelessOutageDetail({ onBack }: { onBack: () => void }) {
           &larr; 返回
         </button>
         <h2 style={{ fontSize: 22, fontWeight: 600, margin: 0 }}>无线退服清单</h2>
-        <span style={{ fontSize: 13, color: '#ef4444', fontWeight: 500 }}>
-          横山区 &middot; 共 {total} 条退服记录
+        <span style={{ fontSize: 13, color: total > 0 ? '#ef4444' : '#22c55e', fontWeight: 500 }}>
+          横山区 &middot; {total > 0 ? `共 ${total} 条退服记录` : '当前无退服基站'}
         </span>
       </div>
 
@@ -174,7 +174,11 @@ export function WirelessOutageDetail({ onBack }: { onBack: () => void }) {
         </h3>
 
         {records.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>暂无数据</div>
+          <div style={{ padding: 40, textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
+            <div style={{ fontSize: 16, color: '#22c55e', fontWeight: 600 }}>当前无退服基站</div>
+            <div style={{ fontSize: 13, color: '#999', marginTop: 8 }}>横山区最新报表示无退服告警</div>
+          </div>
         ) : (
           <>
             <div style={{ overflowX: 'auto' }}>

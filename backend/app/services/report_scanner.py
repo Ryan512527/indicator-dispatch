@@ -407,6 +407,9 @@ def _parse_wireless_outage_files(directory: str) -> List[Dict]:
             if "无线退服清单" in f and f.lower().endswith((".xlsx", ".xls")):
                 matching.append(os.path.join(root, f))
 
+    # 按文件修改时间排序（旧的先处理，新的后处理 → 新文件 id 更大）
+    matching.sort(key=lambda f: os.path.getmtime(f))
+
     for filepath in matching:
         filename = os.path.basename(filepath)
         try:
@@ -429,12 +432,14 @@ def _parse_wireless_outage_files(directory: str) -> List[Dict]:
                     clean[cn_key] = str(val) if val is not None else ""
                 filtered.append(clean)
 
+            all_results.append({
+                "filename": filename,
+                "records": filtered,
+            })
             if filtered:
-                all_results.append({
-                    "filename": filename,
-                    "records": filtered,
-                })
                 logger.info(f"无线退服横山: {filename} -> {len(filtered)} 条横山记录")
+            else:
+                logger.info(f"无线退服横山: {filename} -> 0 条横山记录（最新）")
 
         except Exception as e:
             logger.error(f"解析无线退服文件失败 {filename}: {e}")
@@ -479,9 +484,6 @@ async def reparse_wireless_outage(db: AsyncSession, directory: Optional[str] = N
     for fr in file_results:
         filename = fr["filename"]
         records = fr["records"]
-        if not records:
-            files_skipped += 1
-            continue
 
         report_file = ReportFile(
             report_type_id=report_type.id,
@@ -497,7 +499,10 @@ async def reparse_wireless_outage(db: AsyncSession, directory: Optional[str] = N
             db.add(ReportRecord(report_file_id=report_file.id, data=row))
 
         total_records += len(records)
-        files_parsed += 1
+        if records:
+            files_parsed += 1
+        else:
+            files_skipped += 1
 
     # 更新 column_hint
     report_type.column_hint = list(all_columns)
@@ -513,50 +518,57 @@ async def reparse_wireless_outage(db: AsyncSession, directory: Optional[str] = N
 
 
 async def get_wireless_outage_summary(db: AsyncSession) -> Dict:
-    """获取无线退服横山数据概要：退服总数（去重） + 告警名称列表"""
+    """获取无线退服横山数据概要：仅最新一份文件的退服数 + 告警名称列表"""
     stmt = select(ReportType).where(ReportType.name == "无线退服清单")
     r = await db.execute(stmt)
     report_type = r.scalar_one_or_none()
     if not report_type:
-        return {"total": 0, "alarm_names": [], "latest_time": None}
+        return {"total": 0, "alarm_names": [], "latest_time": None, "latest_filename": None}
 
-    j = ReportRecord.__table__.join(ReportFile.__table__,
-        ReportRecord.report_file_id == ReportFile.id)
-    stmt2 = (
-        select(ReportRecord.data)
-        .select_from(j)
+    # 找到最新的 ReportFile（按 id 降序，id 大的 = 最新入库）
+    latest_file_stmt = (
+        select(ReportFile.id, ReportFile.filename, ReportFile.record_count)
         .where(ReportFile.report_type_id == report_type.id)
+        .order_by(ReportFile.id.desc())
+        .limit(1)
+    )
+    r2 = await db.execute(latest_file_stmt)
+    latest_row = r2.first()
+    if not latest_row:
+        return {"total": 0, "alarm_names": [], "latest_time": None, "latest_filename": None}
+
+    latest_file_id, latest_filename, record_count = latest_row
+
+    # 如果最新文件记录数为 0，直接返回
+    if record_count == 0:
+        return {"total": 0, "alarm_names": [], "latest_time": None, "latest_filename": latest_filename}
+
+    # 仅查询最新文件的记录
+    data_stmt = (
+        select(ReportRecord.data)
+        .where(ReportRecord.report_file_id == latest_file_id)
         .order_by(ReportRecord.id.desc())
     )
-    r2 = await db.execute(stmt2)
-    rows = r2.all()
+    r3 = await db.execute(data_stmt)
+    rows = r3.all()
 
     records = [dict(row[0]) for row in rows]
 
-    # 去重：同一 (站址名称, 告警名称, 告警时间) 只计一次
-    seen = set()
-    unique_records = []
-    for rec in records:
-        key = (rec.get("站址名称", ""), rec.get("告警名称", ""), rec.get("告警时间", ""))
-        if key not in seen:
-            seen.add(key)
-            unique_records.append(rec)
-
     alarm_names: List[str] = []
     seen_names = set()
-    for rec in unique_records:
+    for rec in records:
         name = rec.get("告警名称", "")
         if name and name not in seen_names:
             alarm_names.append(name)
             seen_names.add(name)
 
-    # 最新告警时间
-    latest_time = unique_records[0].get("告警时间", "") if unique_records else None
+    latest_time = records[0].get("告警时间", "") if records else None
 
     return {
-        "total": len(unique_records),
+        "total": len(records),
         "alarm_names": alarm_names,
         "latest_time": latest_time,
+        "latest_filename": latest_filename,
     }
 
 
@@ -565,38 +577,47 @@ async def get_wireless_outage_detail(
     page: int = 1,
     page_size: int = 50,
 ) -> Dict:
-    """分页获取无线退服横山详细数据（去重，仅9个字段）"""
+    """分页获取无线退服横山详细数据：仅最新一份文件的数据（9个字段）"""
     stmt = select(ReportType).where(ReportType.name == "无线退服清单")
     r = await db.execute(stmt)
     report_type = r.scalar_one_or_none()
     if not report_type:
-        return {"records": [], "total": 0, "page": page, "page_size": page_size}
+        return {"records": [], "total": 0, "page": page, "page_size": page_size, "latest_filename": None}
 
-    j = ReportRecord.__table__.join(ReportFile.__table__,
-        ReportRecord.report_file_id == ReportFile.id)
+    # 找到最新的 ReportFile
+    latest_file_stmt = (
+        select(ReportFile.id, ReportFile.filename, ReportFile.record_count)
+        .where(ReportFile.report_type_id == report_type.id)
+        .order_by(ReportFile.id.desc())
+        .limit(1)
+    )
+    r2 = await db.execute(latest_file_stmt)
+    latest_row = r2.first()
+    if not latest_row:
+        return {"records": [], "total": 0, "page": page, "page_size": page_size, "latest_filename": None}
 
-    # 获取所有记录
+    latest_file_id, latest_filename, record_count = latest_row
+
+    if record_count == 0:
+        return {"records": [], "total": 0, "page": page, "page_size": page_size, "latest_filename": latest_filename}
+
+    # 仅查询最新文件的记录
     data_stmt = (
         select(ReportRecord.data, ReportFile.filename, ReportRecord.created_at)
-        .select_from(j)
-        .where(ReportFile.report_type_id == report_type.id)
+        .join(ReportFile, ReportRecord.report_file_id == ReportFile.id)
+        .where(ReportRecord.report_file_id == latest_file_id)
         .order_by(ReportRecord.id.desc())
     )
     r3 = await db.execute(data_stmt)
     rows = r3.all()
 
-    # 去重
-    seen = set()
     all_records = []
     for row in rows:
         data, filename, created_at = row
         record = dict(data)
-        key = (record.get("站址名称", ""), record.get("告警名称", ""), record.get("告警时间", ""))
-        if key not in seen:
-            seen.add(key)
-            record["_source_file"] = filename
-            record["_created_at"] = created_at.isoformat() if created_at else ""
-            all_records.append(record)
+        record["_source_file"] = filename
+        record["_created_at"] = created_at.isoformat() if created_at else ""
+        all_records.append(record)
 
     total = len(all_records)
 
@@ -609,6 +630,7 @@ async def get_wireless_outage_detail(
         "total": total,
         "page": page,
         "page_size": page_size,
+        "latest_filename": latest_filename,
     }
 
 

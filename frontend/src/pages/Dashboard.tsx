@@ -210,6 +210,7 @@ function WirelessOutageCard({ color, onNavigate }: { color: string; onNavigate: 
   const total = summary?.total ?? 0
   const alarmNames = summary?.alarm_names ?? []
   const latestTime = summary?.latest_time
+  const latestFilename = summary?.latest_filename
 
   return (
     <div
@@ -266,7 +267,7 @@ function WirelessOutageCard({ color, onNavigate }: { color: string; onNavigate: 
       </div>
 
       {/* 告警名称列表 */}
-      {alarmNames.length > 0 && (
+      {alarmNames.length > 0 ? (
         <div style={{
           flex: 1,
           background: '#fafafa',
@@ -297,11 +298,29 @@ function WirelessOutageCard({ color, onNavigate }: { color: string; onNavigate: 
             )}
           </div>
         </div>
+      ) : (
+        <div style={{
+          flex: 1,
+          background: '#f0fdf4',
+          borderRadius: 8,
+          padding: '10px 12px',
+          marginBottom: 8,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <span style={{ fontSize: 12, color: '#22c55e' }}>✅ 当前无退服告警</span>
+        </div>
       )}
 
-      {/* 底部提示 */}
-      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, textAlign: 'center' }}>
-        点击查看详情 & 48小时趋势 →
+      {/* 底部信息 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename || ''}>
+            📄 {latestFilename || '—'}
+          </span>
+          <span>点击查看详情 →</span>
+        </div>
       </div>
     </div>
   )

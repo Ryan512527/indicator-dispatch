@@ -65,6 +65,7 @@ export interface WirelessOutageSummary {
   total: number;
   alarm_names: string[];
   latest_time: string | null;
+  latest_filename: string | null;
 }
 
 export interface WirelessOutageTrend {
