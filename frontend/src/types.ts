@@ -58,4 +58,16 @@ export type Page =
   | { name: "dashboard" }
   | { name: "ai-chat" }
   | { name: "detail"; params: { start?: string; end?: string; title?: string; category?: string } }
-  | { name: "report-detail"; params: { id: number; name: string } };
+  | { name: "report-detail"; params: { id: number; name: string } }
+  | { name: "wireless-outage-detail" };
+
+export interface WirelessOutageSummary {
+  total: number;
+  alarm_names: string[];
+  latest_time: string | null;
+}
+
+export interface WirelessOutageTrend {
+  hour: string;
+  count: number;
+}

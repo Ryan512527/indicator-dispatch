@@ -273,3 +273,46 @@ async def get_report_type_records(
     """分页获取某报表类型的记录。"""
     from app.services.report_scanner import get_report_records
     return await get_report_records(type_id, db, page, page_size)
+
+
+# ── 无线退服横山专用 API ──
+
+@router.get("/reports/wireless-outage/summary")
+async def wireless_outage_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取无线退服横山数据概要：退服总数 + 告警名称列表"""
+    from app.services.report_scanner import get_wireless_outage_summary
+    return await get_wireless_outage_summary(db)
+
+
+@router.get("/reports/wireless-outage/detail")
+async def wireless_outage_detail(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """分页获取无线退服横山详细数据（仅9个字段）"""
+    from app.services.report_scanner import get_wireless_outage_detail
+    return await get_wireless_outage_detail(db, page, page_size)
+
+
+@router.get("/reports/wireless-outage/trend")
+async def wireless_outage_trend(
+    hours: int = Query(48, ge=1, le=168),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取最近 N 小时无线退服横山数量趋势"""
+    from app.services.report_scanner import get_wireless_outage_trend
+    return await get_wireless_outage_trend(db, hours)
+
+
+@router.post("/reports/wireless-outage/reparse")
+async def wireless_outage_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析无线退服清单文件，仅保留横山区9个字段"""
+    from app.services.report_scanner import reparse_wireless_outage
+    result = await reparse_wireless_outage(db, directory)
+    return {"report_type": "无线退服清单", **result}

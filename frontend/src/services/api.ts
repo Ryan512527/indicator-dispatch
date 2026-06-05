@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -76,6 +76,32 @@ export const api = {
   parseReport: async (reportType: string) => {
     const res = await fetch(`${BASE}/reports/parse?report_type=${encodeURIComponent(reportType)}`, { method: 'POST' });
     if (!res.ok) throw new Error(`Parse failed: ${res.status}`);
+    return res.json();
+  },
+
+  // ── 无线退服横山专用 APIs ──
+  getWirelessOutageSummary: () =>
+    fetchJson<WirelessOutageSummary>('/reports/wireless-outage/summary'),
+
+  getWirelessOutageDetail: (page = 1, pageSize = 50) =>
+    fetchJson<{
+      records: Record<string, string>[],
+      total: number,
+      page: number,
+      page_size: number,
+    }>('/reports/wireless-outage/detail', {
+      page: String(page),
+      page_size: String(pageSize),
+    }),
+
+  getWirelessOutageTrend: (hours = 48) =>
+    fetchJson<WirelessOutageTrend[]>('/reports/wireless-outage/trend', {
+      hours: String(hours),
+    }),
+
+  reparseWirelessOutage: async () => {
+    const res = await fetch(`${BASE}/reports/wireless-outage/reparse`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
     return res.json();
   },
 };

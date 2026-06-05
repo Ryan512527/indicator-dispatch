@@ -346,6 +346,362 @@ async def get_report_types(db: AsyncSession) -> List[Dict]:
     return result
 
 
+# ── 无线退服横山数据专用处理 ──
+
+# 无线退服清单保留字段（仅提取这9个字段）
+WIRELESS_OUTAGE_FIELDS = [
+    "基站类型",      # station_type
+    "站址名称",      # site_name
+    "告警名称",      # alarm_name
+    "告警时间",      # alarm_time
+    "退服时长(h)",   # outage_duration_hours
+    "保障场景",      # guarantee_scenario
+    "是否超时",      # is_timeout
+    "是否塔维",      # is_tower_maintenance
+    "机房名称",      # room_name
+]
+
+# 英文到中文映射（用于 API 返回，保留中文原名）
+WIRELESS_OUTAGE_FIELD_MAP = {
+    "基站类型": "基站类型",
+    "站址名称": "站址名称",
+    "告警名称": "告警名称",
+    "告警时间": "告警时间",
+    "退服时长(h)": "退服时长(h)",
+    "保障场景": "保障场景",
+    "是否超时": "是否超时",
+    "是否塔维": "是否塔维",
+    "机房名称": "机房名称",
+}
+
+
+# 无线退服: parser 英文字段 → 展示中文名称的映射
+WIRELESS_OUTAGE_EN_TO_CN = {
+    "station_type": "基站类型",
+    "site_name": "站址名称",
+    "alarm_name": "告警名称",
+    "alarm_time": "告警时间",
+    "outage_duration_hours": "退服时长(h)",
+    "guarantee_scenario": "保障场景",
+    "is_timeout": "是否超时",
+    "is_tower_maintenance": "是否塔维",
+    "room_name": "机房名称",
+}
+
+
+def _parse_wireless_outage_files(directory: str) -> List[Dict]:
+    """
+    解析所有"无线退服清单"文件，使用 parser 模块正确检测表头，
+    仅保留 县区=="横山" 且 9 个指定字段的记录。
+    返回 [{"filename": str, "records": [dict]}, ...]
+    """
+    from app.parser.service import parse_file as parser_parse_file
+    all_results: List[Dict] = []
+
+    # 递归查找匹配文件
+    matching: List[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("~$") or f.startswith("."):
+                continue
+            if "无线退服清单" in f and f.lower().endswith((".xlsx", ".xls")):
+                matching.append(os.path.join(root, f))
+
+    for filepath in matching:
+        filename = os.path.basename(filepath)
+        try:
+            # 使用 parser 模块正确解析（会检测表头行并做中英映射）
+            rows = parser_parse_file(filepath)
+            if not rows:
+                continue
+
+            filtered: List[Dict] = []
+            for row in rows:
+                # parser 返回的是英文字段名，district 对应 "县区"
+                district = row.get("district", "")
+                if district != "横山":
+                    continue
+
+                # 只提取 9 个指定字段，映射为中文名称
+                clean: Dict[str, str] = {}
+                for en_key, cn_key in WIRELESS_OUTAGE_EN_TO_CN.items():
+                    val = row.get(en_key, "")
+                    clean[cn_key] = str(val) if val is not None else ""
+                filtered.append(clean)
+
+            if filtered:
+                all_results.append({
+                    "filename": filename,
+                    "records": filtered,
+                })
+                logger.info(f"无线退服横山: {filename} -> {len(filtered)} 条横山记录")
+
+        except Exception as e:
+            logger.error(f"解析无线退服文件失败 {filename}: {e}")
+
+    return all_results
+
+
+async def reparse_wireless_outage(db: AsyncSession, directory: Optional[str] = None) -> Dict:
+    """
+    重新解析无线退服清单文件，仅保留横山区 9 个字段，更新数据库。
+    删除旧的无线退服 report_records 并写入新数据。
+    """
+    if directory is None:
+        directory = settings.watch_dir
+
+    # 获取或创建"无线退服清单"报表类型
+    stmt = select(ReportType).where(ReportType.name == "无线退服清单")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        report_type = ReportType(name="无线退服清单", category="无线")
+        db.add(report_type)
+        await db.flush()
+
+    # 删除旧的无线退服记录（通过 report_files 关联删除 report_records）
+    old_files_stmt = select(ReportFile.id).where(ReportFile.report_type_id == report_type.id)
+    r2 = await db.execute(old_files_stmt)
+    old_file_ids = [row[0] for row in r2.all()]
+    if old_file_ids:
+        from sqlalchemy import delete as _delete
+        await db.execute(_delete(ReportRecord).where(ReportRecord.report_file_id.in_(old_file_ids)))
+        await db.execute(_delete(ReportFile).where(ReportFile.report_type_id == report_type.id))
+
+    # 在线程池中解析
+    file_results = await asyncio.to_thread(_parse_wireless_outage_files, directory)
+
+    total_records = 0
+    files_parsed = 0
+    files_skipped = 0
+    all_columns = set(WIRELESS_OUTAGE_FIELDS)
+
+    for fr in file_results:
+        filename = fr["filename"]
+        records = fr["records"]
+        if not records:
+            files_skipped += 1
+            continue
+
+        report_file = ReportFile(
+            report_type_id=report_type.id,
+            filename=filename,
+            file_path=os.path.join(directory, filename),
+            parse_status="parsed",
+            record_count=len(records),
+        )
+        db.add(report_file)
+        await db.flush()
+
+        for row in records:
+            db.add(ReportRecord(report_file_id=report_file.id, data=row))
+
+        total_records += len(records)
+        files_parsed += 1
+
+    # 更新 column_hint
+    report_type.column_hint = list(all_columns)
+    report_type.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+
+    return {
+        "total_records": total_records,
+        "files_parsed": files_parsed,
+        "files_skipped": files_skipped,
+    }
+
+
+async def get_wireless_outage_summary(db: AsyncSession) -> Dict:
+    """获取无线退服横山数据概要：退服总数（去重） + 告警名称列表"""
+    stmt = select(ReportType).where(ReportType.name == "无线退服清单")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        return {"total": 0, "alarm_names": [], "latest_time": None}
+
+    j = ReportRecord.__table__.join(ReportFile.__table__,
+        ReportRecord.report_file_id == ReportFile.id)
+    stmt2 = (
+        select(ReportRecord.data)
+        .select_from(j)
+        .where(ReportFile.report_type_id == report_type.id)
+        .order_by(ReportRecord.id.desc())
+    )
+    r2 = await db.execute(stmt2)
+    rows = r2.all()
+
+    records = [dict(row[0]) for row in rows]
+
+    # 去重：同一 (站址名称, 告警名称, 告警时间) 只计一次
+    seen = set()
+    unique_records = []
+    for rec in records:
+        key = (rec.get("站址名称", ""), rec.get("告警名称", ""), rec.get("告警时间", ""))
+        if key not in seen:
+            seen.add(key)
+            unique_records.append(rec)
+
+    alarm_names: List[str] = []
+    seen_names = set()
+    for rec in unique_records:
+        name = rec.get("告警名称", "")
+        if name and name not in seen_names:
+            alarm_names.append(name)
+            seen_names.add(name)
+
+    # 最新告警时间
+    latest_time = unique_records[0].get("告警时间", "") if unique_records else None
+
+    return {
+        "total": len(unique_records),
+        "alarm_names": alarm_names,
+        "latest_time": latest_time,
+    }
+
+
+async def get_wireless_outage_detail(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 50,
+) -> Dict:
+    """分页获取无线退服横山详细数据（去重，仅9个字段）"""
+    stmt = select(ReportType).where(ReportType.name == "无线退服清单")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        return {"records": [], "total": 0, "page": page, "page_size": page_size}
+
+    j = ReportRecord.__table__.join(ReportFile.__table__,
+        ReportRecord.report_file_id == ReportFile.id)
+
+    # 获取所有记录
+    data_stmt = (
+        select(ReportRecord.data, ReportFile.filename, ReportRecord.created_at)
+        .select_from(j)
+        .where(ReportFile.report_type_id == report_type.id)
+        .order_by(ReportRecord.id.desc())
+    )
+    r3 = await db.execute(data_stmt)
+    rows = r3.all()
+
+    # 去重
+    seen = set()
+    all_records = []
+    for row in rows:
+        data, filename, created_at = row
+        record = dict(data)
+        key = (record.get("站址名称", ""), record.get("告警名称", ""), record.get("告警时间", ""))
+        if key not in seen:
+            seen.add(key)
+            record["_source_file"] = filename
+            record["_created_at"] = created_at.isoformat() if created_at else ""
+            all_records.append(record)
+
+    total = len(all_records)
+
+    # 分页
+    offset = (page - 1) * page_size
+    records = all_records[offset:offset + page_size]
+
+    return {
+        "records": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+async def get_wireless_outage_trend(db: AsyncSession, hours: int = 48) -> List[Dict]:
+    """
+    获取最近 N 小时无线退服横山数量趋势（按告警发生时间聚合）。
+    去重：同一 (站址名称, 告警名称, 告警时间) 只计一次。
+    返回 [{"hour": "2026-06-05T10:00", "count": 3}, ...]
+    """
+    from collections import Counter
+    from datetime import timedelta, timezone as _tz
+
+    stmt = select(ReportType).where(ReportType.name == "无线退服清单")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        return []
+
+    j = ReportRecord.__table__.join(ReportFile.__table__,
+        ReportRecord.report_file_id == ReportFile.id)
+
+    data_stmt = (
+        select(ReportRecord.data)
+        .select_from(j)
+        .where(ReportFile.report_type_id == report_type.id)
+    )
+    r2 = await db.execute(data_stmt)
+    rows = r2.all()
+
+    # 北京时间 UTC+8
+    beijing_tz = _tz(timedelta(hours=8))
+    now_bj = datetime.now(beijing_tz)
+    cutoff = now_bj.replace(minute=0, second=0, microsecond=0)
+
+    hour_counter: Counter = Counter()
+    seen_alarms: set = set()
+
+    for row in rows:
+        data = dict(row[0])
+        alarm_time_str = data.get("告警时间", "")
+        site_name = data.get("站址名称", "")
+        alarm_name = data.get("告警名称", "")
+
+        if not alarm_time_str:
+            continue
+
+        # 去重：同一站点+同一告警+同一时间只计一次
+        dedup_key = (site_name, alarm_name, alarm_time_str)
+        if dedup_key in seen_alarms:
+            continue
+        seen_alarms.add(dedup_key)
+
+        try:
+            # 解析北京时间字符串
+            alarm_dt = None
+            for fmt_str in [
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y/%m/%d %H:%M:%S",
+                "%Y/%m/%d %H:%M",
+            ]:
+                try:
+                    alarm_dt = datetime.strptime(alarm_time_str[:19], fmt_str[:len(alarm_time_str[:19])])
+                    break
+                except ValueError:
+                    continue
+
+            if alarm_dt is None:
+                continue
+
+            # 添加北京时区使其与 cutoff 对齐
+            alarm_dt = alarm_dt.replace(tzinfo=beijing_tz)
+
+            # 按小时聚合（北京时间）
+            hour_key = alarm_dt.replace(minute=0, second=0, microsecond=0)
+            hour_counter[hour_key] += 1
+
+        except Exception:
+            continue
+
+    # 生成最近 hours 小时的时间序列（北京时间）
+    trend = []
+    for i in range(hours - 1, -1, -1):
+        actual_slot = cutoff - timedelta(hours=i)
+        count = hour_counter.get(actual_slot, 0)
+        trend.append({
+            "hour": actual_slot.isoformat(),
+            "count": count,
+        })
+
+    return trend
+
+
 async def get_report_records(
     report_type_id: int,
     db: AsyncSession,

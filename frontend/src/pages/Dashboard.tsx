@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType } from '../types'
+import type { Page, ReportType, WirelessOutageSummary } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -178,6 +178,135 @@ function ReportCard({ rt, color, onNavigate }: { rt: ReportType; color: string; 
   )
 }
 
+// ── 无线退服专用卡片 ──
+function WirelessOutageCard({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<WirelessOutageSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getWirelessOutageSummary()
+      .then(data => setSummary(data as WirelessOutageSummary))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '16px 20px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        display: 'flex', flexDirection: 'column',
+        minHeight: 160,
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', marginBottom: 10 }}>无线退服清单</div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 12 }}>
+          加载中...
+        </div>
+      </div>
+    )
+  }
+
+  const total = summary?.total ?? 0
+  const alarmNames = summary?.alarm_names ?? []
+  const latestTime = summary?.latest_time
+
+  return (
+    <div
+      onClick={() => onNavigate({ name: 'wireless-outage-detail' })}
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        cursor: 'pointer',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        transition: 'transform 0.15s, box-shadow 0.15s',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'
+      }}
+    >
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>无线退服清单</div>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 10,
+            background: '#fef2f2',
+            color: '#ef4444',
+            fontSize: 11,
+            fontWeight: 600,
+          }}>
+            横山
+          </span>
+        </div>
+        <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
+          {latestTime ? fmt(latestTime) : '—'}
+        </span>
+      </div>
+
+      {/* 核心数字 */}
+      <div style={{ textAlign: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 42, fontWeight: 700, color: total > 0 ? '#ef4444' : '#22c55e', lineHeight: 1.1 }}>
+          {total}
+        </div>
+        <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+          当前退服基站数
+        </div>
+      </div>
+
+      {/* 告警名称列表 */}
+      {alarmNames.length > 0 && (
+        <div style={{
+          flex: 1,
+          background: '#fafafa',
+          borderRadius: 8,
+          padding: '10px 12px',
+          marginBottom: 8,
+        }}>
+          <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>告警类型</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 6px' }}>
+            {alarmNames.slice(0, 6).map((name, i) => (
+              <span key={i} style={{
+                display: 'inline-block',
+                padding: '2px 8px',
+                borderRadius: 4,
+                background: '#fff',
+                border: '1px solid #fee2e2',
+                color: '#dc2626',
+                fontSize: 11,
+                whiteSpace: 'nowrap',
+              }}>
+                {name}
+              </span>
+            ))}
+            {alarmNames.length > 6 && (
+              <span style={{ fontSize: 11, color: '#999', alignSelf: 'center' }}>
+                +{alarmNames.length - 6} 种
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 底部提示 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, textAlign: 'center' }}>
+        点击查看详情 & 48小时趋势 →
+      </div>
+    </div>
+  )
+}
+
 // ── 分类报表看板 ──
 function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [reportTypes, setReportTypes] = useState<ReportType[]>([])
@@ -242,9 +371,13 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
               </span>
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
-              {items.map(rt => (
-                <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
-              ))}
+              {items.map(rt => {
+                // 无线退服清单用专用卡片
+                if (rt.name === '无线退服清单') {
+                  return <WirelessOutageCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
+                return <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
+              })}
             </div>
           </div>
         )

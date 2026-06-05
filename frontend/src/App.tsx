@@ -4,6 +4,7 @@ import { Dashboard } from './pages/Dashboard'
 import { OutageDetail } from './pages/OutageDetail'
 import { AIChat } from './pages/AIChat'
 import { ReportDetail } from './pages/ReportDetail'
+import { WirelessOutageDetail } from './pages/WirelessOutageDetail'
 import type { Page } from './types'
 
 
@@ -16,6 +17,7 @@ export default function App() {
         page.name === 'dashboard' ? '/dashboard' :
         page.name === 'ai-chat' ? '/ai' :
         page.name === 'report-detail' ? `/reports/${page.params?.id}` :
+        page.name === 'wireless-outage-detail' ? '/wireless-outage' :
         ''
       }
       onNavigate={(p: string | Page) => {
@@ -31,6 +33,7 @@ export default function App() {
       {page.name === 'detail' && <OutageDetail params={page.params || {}} onBack={() => setPage({ name: 'dashboard' })} />}
       {page.name === 'ai-chat' && <AIChat />}
       {page.name === 'report-detail' && <ReportDetail reportTypeId={page.params?.id || 0} />}
+      {page.name === 'wireless-outage-detail' && <WirelessOutageDetail onBack={() => setPage({ name: 'dashboard' })} />}
     </Layout>
   )
 }
