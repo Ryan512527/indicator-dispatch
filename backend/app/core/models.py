@@ -107,3 +107,45 @@ class EnterpriseBroadbandBacklog(Base):
     install_duration_hours = Column(String(50), comment="装机历时（h）")
     user_brand = Column(String(50), comment="用户品牌")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+# ── 日报专用模型 ──
+
+class DailyReportSummary(Base):
+    """日报 - 横山两类和五类装机成功率（来自"两类"和"五类"sheet）"""
+    __tablename__ = "daily_report_summary"
+
+    id = Column(BigInteger, primary_key=True)
+    report_date = Column(String(50), comment="通报日期")
+    two_cat_backlog_total = Column(String(50), comment="两类-积压总量")
+    two_cat_broadband_rate = Column(String(50), comment="两类-家宽转化率")
+    two_cat_fttr_rate = Column(String(50), comment="两类-FTTR转化率")
+    two_cat_total_rate = Column(String(50), comment="两类-总装机转化率")
+    five_cat_backlog_total = Column(String(50), comment="五类-积压总量")
+    five_cat_broadband_rate = Column(String(50), comment="五类-家宽转化率")
+    five_cat_smart_network = Column(String(50), comment="五类-智能组网")
+    five_cat_safe_village = Column(String(50), comment="五类-平安乡村")
+    five_cat_fttr_rate = Column(String(50), comment="五类-FTTR转化率")
+    five_cat_total_rate = Column(String(50), comment="五类-总装机转化率")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class DailyReportBacklog(Base):
+    """日报 - 横山装机积压清单（来自"宽带积压"sheet）"""
+    __tablename__ = "daily_report_backlog"
+
+    id = Column(BigInteger, primary_key=True)
+    report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=False, index=True)
+    district = Column(String(50), comment="所属区县")
+    account = Column(String(50), comment="宽带账号")
+    service = Column(String(200), comment="服务")
+    address = Column(Text, comment="施工地址")
+    worker_name = Column(String(50), comment="施工人姓名")
+    order_status = Column(String(50), comment="工单状态")
+    accept_time = Column(String(50), comment="受理时间")
+    to_install_time = Column(String(50), comment="到装维时间")
+    deadline = Column(String(50), comment="完成时限")
+    backlog_hours = Column(String(50), comment="积压时长h")
+    install_duration_hours = Column(String(50), comment="装机历时(h)，完成时限 - 到装维时间")
+    user_brand = Column(String(50), comment="用户品牌")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

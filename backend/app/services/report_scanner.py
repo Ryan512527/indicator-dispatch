@@ -1674,6 +1674,525 @@ async def get_enterprise_broadband_backlog(
     }
 
 
+# ── 日报横山数据专用处理 ──
+
+# 两类指标保留字段
+TWO_CAT_FIELDS = [
+    "积压总量",      # backlog_total
+    "家宽转化率",    # broadband_rate
+    "FTTR转化率",    # fttr_rate
+    "总装机转化率",  # total_rate
+]
+
+# 五类指标保留字段
+FIVE_CAT_FIELDS = [
+    "积压总量",      # backlog_total
+    "家宽转化率",    # broadband_rate
+    "智能组网",      # smart_network
+    "平安乡村",      # safe_village
+    "FTTR转化率",    # fttr_rate
+    "总装机转化率",  # total_rate
+]
+
+# 宽带积压保留字段
+BACKLOG_FIELDS = [
+    "所属区县",
+    "宽带账号",
+    "服务",
+    "施工地址",
+    "施工人姓名",
+    "工单状态",
+    "受理时间",
+    "到装维时间",
+    "完成时限",
+    "积压时长h",
+    "用户品牌",
+]
+
+
+def _parse_daily_report_files(directory: str) -> dict:
+    """
+    解析所有"日报"文件，提取横山数据：
+    1. "两类" sheet → 两类装机成功率概况
+    2. "五类" sheet → 五类装机成功率概况
+    3. "宽带积压" sheet → 装机积压清单（含计算装机历时）
+    使用 openpyxl(read_only=True) + 迭代器流式读取。
+    返回 {"summary": dict, "backlog": [dict], "filename": str, "report_date": str}
+    """
+    from datetime import datetime as _dt
+
+    # 找到最新的日报文件
+    matching: list[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("~$") or f.startswith("."):
+                continue
+            if "日报" in f and f.lower().endswith((".xlsx", ".xls")):
+                matching.append(os.path.join(root, f))
+
+    if not matching:
+        return {"summary": None, "backlog": [], "filename": None, "report_date": None}
+
+    # 按修改时间排序，取最新
+    matching.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+    latest_file = matching[0]
+    filename = os.path.basename(latest_file)
+
+    # 尝试从文件名提取日期
+    report_date = None
+    date_match = re.search(r'(\d{4})[-年](\d{1,2})[-月](\d{1,2})', filename)
+    if date_match:
+        report_date = f"{date_match.group(1)}-{date_match.group(2).zfill(2)}-{date_match.group(3).zfill(2)}"
+    else:
+        report_date = _dt.now().strftime("%Y-%m-%d")
+
+    try:
+        wb = openpyxl.load_workbook(latest_file, read_only=True, data_only=True)
+        summary: dict = {}
+        backlog_records: list[dict] = []
+
+        # ── 1. 解析"两类" sheet ──
+        if "两类" in wb.sheetnames:
+            ws = wb["两类"]
+            summary["two_cat"] = _parse_category_sheet(ws, "两类", TWO_CAT_FIELDS)
+        else:
+            logger.warning(f"日报文件 {filename} 缺少'两类'sheet")
+
+        # ── 2. 解析"五类" sheet ──
+        if "五类" in wb.sheetnames:
+            ws = wb["五类"]
+            summary["five_cat"] = _parse_category_sheet(ws, "五类", FIVE_CAT_FIELDS)
+        else:
+            logger.warning(f"日报文件 {filename} 缺少'五类'sheet")
+
+        # ── 3. 解析"宽带积压" sheet ──
+        if "宽带积压" in wb.sheetnames:
+            ws = wb["宽带积压"]
+            backlog_records = _parse_backlog_sheet(ws, filename)
+        else:
+            logger.warning(f"日报文件 {filename} 缺少'宽带积压'sheet")
+
+        wb.close()
+
+        logger.info(
+            f"日报横山: {filename} -> 两类={summary.get('two_cat')}, "
+            f"五类={summary.get('five_cat')}, 积压={len(backlog_records)} 条"
+        )
+
+        return {
+            "summary": summary,
+            "backlog": backlog_records,
+            "filename": filename,
+            "report_date": report_date,
+        }
+
+    except Exception as e:
+        logger.error(f"解析日报文件失败 {filename}: {e}", exc_info=True)
+        return {"summary": None, "backlog": [], "filename": filename, "report_date": report_date}
+
+
+def _parse_category_sheet(ws, sheet_label: str, target_fields: list[str]) -> dict | None:
+    """
+    解析"两类"/"五类"sheet，定位横山行并提取指标值。
+    
+    策略：流式遍历行，在第一列中查找"横山"或"横山县"。
+    表头行通过标题行（包含"两类"/"五类"关键词）定位。
+    找到横山行后，按目标字段顺序提取对应列的值。
+    """
+    try:
+        rows_data = list(ws.iter_rows(values_only=True))
+    except Exception:
+        # 某些 read_only 模式下无法 list，回退逐行读取
+        rows_data = []
+        for row in ws.iter_rows(values_only=True):
+            rows_data.append(row)
+
+    if len(rows_data) < 2:
+        return None
+
+    # 查找横山行：扫描全表，找到第一列是"横山"或"横山县"的行，同时用该行上方最近的非空行作为可能的表头
+    hengshan_row_idx = None
+    hengshan_row = None
+    header_row_idx = None
+
+    for idx, row in enumerate(rows_data):
+        first_cell = str(row[0]).strip() if row and row[0] else ""
+        if first_cell in ("横山", "横山县"):
+            hengshan_row_idx = idx
+            hengshan_row = row
+            break
+
+    if hengshan_row_idx is None:
+        logger.info(f"日报 {sheet_label} sheet 未找到横山行")
+        return None
+
+    # 查找表头行：在横山行上方最近的非标题行
+    # 跳过第一行（通常是标题），在横山行上方找包含指标关键字的行
+    for idx in range(max(1, hengshan_row_idx - 3), hengshan_row_idx):
+        row = rows_data[idx]
+        row_text = " ".join(str(c) for c in row if c)
+        # 检查是否包含"积压总量"或"转化率"等指标关键字
+        if any(kw in row_text for kw in ["积压总量", "转化率", "装机"]):
+            header_row_idx = idx
+            break
+
+    result: dict[str, str] = {}
+    for i, field in enumerate(target_fields):
+        result[field] = ""
+
+    if hengshan_row is None:
+        return result
+
+    # 如果有表头行，按表头列名匹配
+    if header_row_idx is not None:
+        header_row = rows_data[header_row_idx]
+        for i, field in enumerate(target_fields):
+            for col_idx, header_cell in enumerate(header_row):
+                if header_cell and field in str(header_cell).strip():
+                    val = hengshan_row[col_idx] if col_idx < len(hengshan_row) else ""
+                    result[field] = str(val).strip() if val is not None else ""
+                    break
+
+    # 如果表头匹配失败，回退：按横山行数据顺序填充（跳过第一列区县名）
+    if all(v == "" for v in result.values()):
+        for i, field in enumerate(target_fields):
+            col_idx = i + 1  # 跳过第一列（区县名）
+            if col_idx < len(hengshan_row):
+                val = hengshan_row[col_idx]
+                result[field] = str(val).strip() if val is not None else ""
+
+    return result
+
+
+def _parse_backlog_sheet(ws, filename: str) -> list[dict]:
+    """
+    解析"宽带积压"sheet，流式读取，过滤横山区数据。
+    计算装机历时(h) = 完成时限 - 到装维时间。
+    返回 [record, ...]
+    """
+    from datetime import datetime as _dt
+
+    row_iter = ws.iter_rows(values_only=True)
+
+    # 读取前几行找表头（表头通常在前5行内）
+    header_row = None
+    header_rows_buf: list[tuple] = []
+    for i in range(10):
+        try:
+            r = next(row_iter)
+            header_rows_buf.append(r)
+            # 检查是否包含关键字段
+            row_text = " ".join(str(c) for c in r if c)
+            if any(kw in row_text for kw in ["宽带账号", "所属区县", "施工地址"]):
+                header_row = r
+                break
+        except StopIteration:
+            break
+
+    if header_row is None:
+        logger.warning(f"日报宽带积压 sheet 未检测到表头行: {filename}")
+        return []
+
+    # 建立列映射
+    col_map: dict[str, int] = {}
+    for idx, cell in enumerate(header_row):
+        if cell is None:
+            continue
+        cell_str = str(cell).strip()
+        for field in BACKLOG_FIELDS:
+            if len(field) >= 3 and field in cell_str:
+                col_map[field] = idx
+                break
+
+    # 验证关键字段
+    missing = [f for f in ["所属区县", "宽带账号"] if f not in col_map]
+    if missing:
+        logger.warning(f"日报宽带积压 sheet 缺少关键字段: {missing}")
+        return []
+
+    max_col_idx = max(col_map.values())
+
+    # 流式遍历数据行，过滤横山
+    backlog_records: list[dict] = []
+    for row in row_iter:
+        if not row or len(row) <= max_col_idx:
+            continue
+
+        # 过滤横山
+        district_val = ""
+        if "所属区县" in col_map and row[col_map["所属区县"]]:
+            district_val = str(row[col_map["所属区县"]]).strip()
+
+        if district_val != "横山" and district_val != "横山县":
+            continue
+
+        # 提取字段
+        def _get(field: str) -> str:
+            if field in col_map and col_map[field] < len(row) and row[col_map[field]] is not None:
+                val = row[col_map[field]]
+                if isinstance(val, _dt):
+                    return val.strftime("%Y-%m-%d %H:%M:%S")
+                return str(val).strip()
+            return ""
+
+        # 计算装机历时(h)
+        install_duration = ""
+        deadline_str = _get("完成时限")
+        to_install_str = _get("到装维时间")
+
+        if deadline_str and to_install_str:
+            try:
+                # 尝试多种日期格式
+                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M"]:
+                    try:
+                        deadline_dt = _dt.strptime(deadline_str[:len(fmt)], fmt)
+                        to_install_dt = _dt.strptime(to_install_str[:len(fmt)], fmt)
+                        diff = deadline_dt - to_install_dt
+                        hours = diff.total_seconds() / 3600.0
+                        install_duration = f"{hours:.2f}"
+                        break
+                    except (ValueError, TypeError):
+                        continue
+            except Exception:
+                install_duration = ""
+
+        # 计算积压时长提醒标签
+        duration_warning = ""
+        try:
+            duration_h = float(install_duration) if install_duration else 0
+            if duration_h > 48:
+                duration_warning = "超48h"
+            elif duration_h > 24:
+                duration_warning = "超24h"
+            elif duration_h > 8:
+                duration_warning = "超8h"
+        except (ValueError, TypeError):
+            pass
+
+        record = {
+            "所属区县": _get("所属区县"),
+            "宽带账号": _get("宽带账号"),
+            "服务": _get("服务"),
+            "施工地址": _get("施工地址"),
+            "施工人姓名": _get("施工人姓名"),
+            "工单状态": _get("工单状态"),
+            "受理时间": _get("受理时间"),
+            "到装维时间": _get("到装维时间"),
+            "完成时限": _get("完成时限"),
+            "积压时长h": _get("积压时长h"),
+            "装机历时(h)": install_duration,
+            "时长提醒": duration_warning,
+            "用户品牌": _get("用户品牌"),
+        }
+
+        backlog_records.append(record)
+
+    logger.info(f"日报宽带积压横山: {filename} -> {len(backlog_records)} 条")
+    return backlog_records
+
+
+async def reparse_daily_report(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """
+    重新解析日报文件，提取横山两类/五类概况 + 宽带积压清单，更新数据库。
+    删除旧数据并写入新数据。
+    """
+    if directory is None:
+        directory = settings.watch_dir
+
+    # 在线程池中解析
+    result = await asyncio.to_thread(_parse_daily_report_files, directory)
+
+    # 导入模型
+    from app.core.models import DailyReportSummary, DailyReportBacklog
+    from sqlalchemy import delete as _delete
+
+    # 删除旧数据
+    await db.execute(_delete(DailyReportSummary))
+    await db.execute(_delete(DailyReportBacklog))
+
+    # ── 写入汇总表 ──
+    summary_count = 0
+    if result["summary"]:
+        s = result["summary"]
+        two = s.get("two_cat") or {}
+        five = s.get("five_cat") or {}
+
+        drs = DailyReportSummary(
+            report_date=result["report_date"] or "",
+            two_cat_backlog_total=two.get("积压总量", ""),
+            two_cat_broadband_rate=two.get("家宽转化率", ""),
+            two_cat_fttr_rate=two.get("FTTR转化率", ""),
+            two_cat_total_rate=two.get("总装机转化率", ""),
+            five_cat_backlog_total=five.get("积压总量", ""),
+            five_cat_broadband_rate=five.get("家宽转化率", ""),
+            five_cat_smart_network=five.get("智能组网", ""),
+            five_cat_safe_village=five.get("平安乡村", ""),
+            five_cat_fttr_rate=five.get("FTTR转化率", ""),
+            five_cat_total_rate=five.get("总装机转化率", ""),
+        )
+        db.add(drs)
+        summary_count = 1
+
+    # ── 获取或创建"日报"报表类型 ──
+    stmt = select(ReportType).where(ReportType.name == "日报")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        report_type = ReportType(name="日报", category="装维生产")
+        db.add(report_type)
+        await db.flush()
+
+    # 删除旧的日报 report_files/report_records
+    old_files_stmt = select(ReportFile.id).where(ReportFile.report_type_id == report_type.id)
+    r2 = await db.execute(old_files_stmt)
+    old_file_ids = [row[0] for row in r2.all()]
+    if old_file_ids:
+        await db.execute(_delete(ReportRecord).where(ReportRecord.report_file_id.in_(old_file_ids)))
+        await db.execute(_delete(ReportFile).where(ReportFile.report_type_id == report_type.id))
+
+    # 创建 ReportFile
+    report_file = ReportFile(
+        report_type_id=report_type.id,
+        filename=result["filename"] or "",
+        file_path=os.path.join(directory, result["filename"] or ""),
+        parse_status="parsed",
+        record_count=len(result["backlog"]),
+    )
+    db.add(report_file)
+    await db.flush()
+
+    # ── 写入积压清单 ──
+    backlog_count = 0
+    for rec in result["backlog"]:
+        drb = DailyReportBacklog(
+            report_file_id=report_file.id,
+            district=rec.get("所属区县", ""),
+            account=rec.get("宽带账号", ""),
+            service=rec.get("服务", ""),
+            address=rec.get("施工地址", ""),
+            worker_name=rec.get("施工人姓名", ""),
+            order_status=rec.get("工单状态", ""),
+            accept_time=rec.get("受理时间", ""),
+            to_install_time=rec.get("到装维时间", ""),
+            deadline=rec.get("完成时限", ""),
+            backlog_hours=rec.get("积压时长h", ""),
+            install_duration_hours=rec.get("装机历时(h)", ""),
+            user_brand=rec.get("用户品牌", ""),
+        )
+        db.add(drb)
+        backlog_count += 1
+
+    # 更新 column_hint
+    report_type.column_hint = BACKLOG_FIELDS.copy()
+    report_type.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+
+    return {
+        "summary_parsed": summary_count,
+        "backlog_count": backlog_count,
+        "filename": result["filename"],
+        "report_date": result["report_date"],
+    }
+
+
+async def get_daily_report_summary(db: AsyncSession) -> dict:
+    """获取日报横山卡片汇总指标（两类+五类装机成功率）"""
+    from app.core.models import DailyReportSummary
+
+    stmt = select(DailyReportSummary).order_by(DailyReportSummary.id.desc()).limit(1)
+    r = await db.execute(stmt)
+    row = r.scalar_one_or_none()
+
+    if not row:
+        return {
+            "report_date": "",
+            "two_cat": {"积压总量": "", "家宽转化率": "", "FTTR转化率": "", "总装机转化率": ""},
+            "five_cat": {"积压总量": "", "家宽转化率": "", "智能组网": "", "平安乡村": "", "FTTR转化率": "", "总装机转化率": ""},
+        }
+
+    return {
+        "report_date": row.report_date,
+        "two_cat": {
+            "积压总量": row.two_cat_backlog_total,
+            "家宽转化率": row.two_cat_broadband_rate,
+            "FTTR转化率": row.two_cat_fttr_rate,
+            "总装机转化率": row.two_cat_total_rate,
+        },
+        "five_cat": {
+            "积压总量": row.five_cat_backlog_total,
+            "家宽转化率": row.five_cat_broadband_rate,
+            "智能组网": row.five_cat_smart_network,
+            "平安乡村": row.five_cat_safe_village,
+            "FTTR转化率": row.five_cat_fttr_rate,
+            "总装机转化率": row.five_cat_total_rate,
+        },
+    }
+
+
+async def get_daily_report_backlog(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
+    """分页获取日报横山装机积压清单"""
+    from app.core.models import DailyReportBacklog
+    from sqlalchemy import func as _func
+
+    count_stmt = select(_func.count(DailyReportBacklog.id))
+    r = await db.execute(count_stmt)
+    total = r.scalar() or 0
+
+    offset = (page - 1) * page_size
+    data_stmt = (
+        select(DailyReportBacklog)
+        .order_by(DailyReportBacklog.id.asc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    r2 = await db.execute(data_stmt)
+    rows = r2.scalars().all()
+
+    records = []
+    for row in rows:
+        # 计算时长提醒标签
+        duration_warning = ""
+        try:
+            duration_h = float(row.install_duration_hours) if row.install_duration_hours else 0
+            if duration_h > 48:
+                duration_warning = "超48h"
+            elif duration_h > 24:
+                duration_warning = "超24h"
+            elif duration_h > 8:
+                duration_warning = "超8h"
+        except (ValueError, TypeError):
+            pass
+
+        records.append({
+            "id": row.id,
+            "所属区县": row.district,
+            "宽带账号": row.account,
+            "服务": row.service,
+            "施工地址": row.address,
+            "施工人姓名": row.worker_name,
+            "工单状态": row.order_status,
+            "受理时间": row.accept_time,
+            "到装维时间": row.to_install_time,
+            "完成时限": row.deadline,
+            "积压时长h": row.backlog_hours,
+            "装机历时(h)": row.install_duration_hours,
+            "时长提醒": duration_warning,
+            "用户品牌": row.user_brand,
+        })
+
+    return {
+        "records": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
 async def get_report_records(
     report_type_id: int,
     db: AsyncSession,

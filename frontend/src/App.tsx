@@ -8,6 +8,7 @@ import { WirelessOutageDetail } from './pages/WirelessOutageDetail'
 import { PisiteFaultDetail } from './pages/PisiteFaultDetail'
 import { AccessLayerFaultDetail } from './pages/AccessLayerFaultDetail'
 import { EnterpriseBroadbandBacklog } from './pages/EnterpriseBroadbandBacklog'
+import { DailyReportDetail } from './pages/DailyReportDetail'
 import type { Page } from './types'
 
 
@@ -24,6 +25,7 @@ export default function App() {
         page.name === 'pisite-fault-detail' ? '/pisite-fault' :
         page.name === 'access-layer-fault-detail' ? '/access-layer-fault' :
         page.name === 'enterprise-broadband-backlog' ? '/enterprise-broadband-backlog' :
+        page.name === 'daily-report-detail' ? '/daily-report-detail' :
         ''
       }
       onNavigate={(p: string | Page) => {
@@ -43,6 +45,7 @@ export default function App() {
       {page.name === 'pisite-fault-detail' && <PisiteFaultDetail onBack={() => setPage({ name: 'dashboard' })} />}
       {page.name === 'access-layer-fault-detail' && <AccessLayerFaultDetail onBack={() => setPage({ name: 'dashboard' })} />}
       {page.name === 'enterprise-broadband-backlog' && <EnterpriseBroadbandBacklog onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'daily-report-detail' && <DailyReportDetail onBack={() => setPage({ name: 'dashboard' })} />}
     </Layout>
   )
 }

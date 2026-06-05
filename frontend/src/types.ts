@@ -62,7 +62,8 @@ export type Page =
   | { name: "wireless-outage-detail" }
   | { name: "pisite-fault-detail" }
   | { name: "access-layer-fault-detail" }
-  | { name: "enterprise-broadband-backlog" };
+  | { name: "enterprise-broadband-backlog" }
+  | { name: "daily-report-detail" };
 
 export interface WirelessOutageSummary {
   total: number;
@@ -118,4 +119,39 @@ export interface EnterpriseBroadbandBacklogRecord {
   deadline: string;
   install_duration_hours: string;
   user_brand: string;
+}
+
+export interface DailyReportSummary {
+  report_date: string;
+  two_cat: {
+    积压总量: string;
+    家宽转化率: string;
+    FTTR转化率: string;
+    总装机转化率: string;
+  };
+  five_cat: {
+    积压总量: string;
+    家宽转化率: string;
+    智能组网: string;
+    平安乡村: string;
+    FTTR转化率: string;
+    总装机转化率: string;
+  };
+}
+
+export interface DailyReportBacklogRecord {
+  id: number;
+  所属区县: string;
+  宽带账号: string;
+  服务: string;
+  施工地址: string;
+  施工人姓名: string;
+  工单状态: string;
+  受理时间: string;
+  到装维时间: string;
+  完成时限: string;
+  积压时长h: string;
+  ['装机历时(h)']: string;
+  时长提醒: string;
+  用户品牌: string;
 }

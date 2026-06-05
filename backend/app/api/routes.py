@@ -415,3 +415,36 @@ async def enterprise_broadband_reparse(
     from app.services.report_scanner import reparse_enterprise_broadband
     result = await reparse_enterprise_broadband(db, directory)
     return {"report_type": "企宽装机通报", **result}
+
+
+# ── 日报横山专用 API ──
+
+@router.get("/reports/daily-report/summary")
+async def daily_report_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取日报横山卡片汇总指标（两类+五类装机成功率）"""
+    from app.services.report_scanner import get_daily_report_summary
+    return await get_daily_report_summary(db)
+
+
+@router.get("/reports/daily-report/backlog")
+async def daily_report_backlog(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """分页获取日报横山装机积压清单（含装机历时计算和时长提醒）"""
+    from app.services.report_scanner import get_daily_report_backlog
+    return await get_daily_report_backlog(db, page, page_size)
+
+
+@router.post("/reports/daily-report/reparse")
+async def daily_report_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析日报文件，提取横山两类/五类概况 + 宽带积压清单"""
+    from app.services.report_scanner import reparse_daily_report
+    result = await reparse_daily_report(db, directory)
+    return {"report_type": "日报", **result}

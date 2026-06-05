@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -806,6 +806,158 @@ function EnterpriseBroadbandCard({ color, onNavigate }: { color: string; onNavig
   )
 }
 
+// ── 日报专用卡片 ──
+function DailyReportCard({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<DailyReportSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getDailyReportSummary()
+      .then(data => setSummary(data as DailyReportSummary))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '16px 20px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        display: 'flex', flexDirection: 'column',
+        minHeight: 280,
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', marginBottom: 10 }}>日报</div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 12 }}>
+          加载中...
+        </div>
+      </div>
+    )
+  }
+
+  const fmtPercent = (v: string) => {
+    const n = parseFloat(v)
+    if (isNaN(n)) return v || '—'
+    return (n * 100).toFixed(1) + '%'
+  }
+
+  const reportDate = summary?.report_date || ''
+
+  return (
+    <div
+      onClick={() => onNavigate({ name: 'daily-report-detail' })}
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        cursor: 'pointer',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        transition: 'transform 0.15s, box-shadow 0.15s',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'
+      }}
+    >
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>日报</div>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 10,
+            background: '#eff6ff',
+            color: '#3b82f6',
+            fontSize: 11,
+            fontWeight: 600,
+          }}>
+            横山
+          </span>
+        </div>
+        <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
+          {reportDate || '—'}
+        </span>
+      </div>
+
+      {/* 五类装机成功率 */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 8, borderBottom: '1px solid #f0f0f0', paddingBottom: 4 }}>
+          📊 五类装机成功率
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+          {[
+            { label: '积压总量', value: summary?.five_cat?.积压总量 || '—', key: 'five_backlog' },
+            { label: '家宽转化率', value: summary?.five_cat?.家宽转化率 ? fmtPercent(summary.five_cat.家宽转化率) : '—', key: 'five_broadband' },
+            { label: '智能组网', value: summary?.five_cat?.智能组网 ? fmtPercent(summary.five_cat.智能组网) : '—', key: 'five_smart' },
+            { label: '平安乡村', value: summary?.five_cat?.平安乡村 ? fmtPercent(summary.five_cat.平安乡村) : '—', key: 'five_village' },
+            { label: 'FTTR转化率', value: summary?.five_cat?.FTTR转化率 ? fmtPercent(summary.five_cat.FTTR转化率) : '—', key: 'five_fttr' },
+            { label: '总装机转化率', value: summary?.five_cat?.总装机转化率 ? fmtPercent(summary.five_cat.总装机转化率) : '—', key: 'five_total' },
+          ].map(item => (
+            <div key={item.key} style={{
+              textAlign: 'center',
+              background: '#f0fdf4',
+              borderRadius: 6,
+              padding: '6px 4px',
+            }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#166534', lineHeight: 1.2 }}>
+                {item.value}
+              </div>
+              <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+                {item.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 两类装机成功率 */}
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 8, borderBottom: '1px solid #f0f0f0', paddingBottom: 4 }}>
+          📋 两类装机成功率
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+          {[
+            { label: '积压总量', value: summary?.two_cat?.积压总量 || '—', key: 'two_backlog' },
+            { label: '家宽转化率', value: summary?.two_cat?.家宽转化率 ? fmtPercent(summary.two_cat.家宽转化率) : '—', key: 'two_broadband' },
+            { label: 'FTTR转化率', value: summary?.two_cat?.FTTR转化率 ? fmtPercent(summary.two_cat.FTTR转化率) : '—', key: 'two_fttr' },
+            { label: '总装机转化率', value: summary?.two_cat?.总装机转化率 ? fmtPercent(summary.two_cat.总装机转化率) : '—', key: 'two_total' },
+          ].map(item => (
+            <div key={item.key} style={{
+              textAlign: 'center',
+              background: '#f8fafc',
+              borderRadius: 6,
+              padding: '6px 4px',
+            }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#1e40af', lineHeight: 1.2 }}>
+                {item.value}
+              </div>
+              <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+                {item.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 底部 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>📄 {reportDate ? `日报 ${reportDate}` : '—'}</span>
+          <span style={{ color: '#3b82f6' }}>点击查看积压清单 →</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 分类报表看板 ──
 function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [reportTypes, setReportTypes] = useState<ReportType[]>([])
@@ -886,6 +1038,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 // 企宽装机通报用专用卡片
                 if (rt.name === '企宽装机通报') {
                   return <EnterpriseBroadbandCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
+                // 日用专用卡片
+                if (rt.name === '日报') {
+                  return <DailyReportCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
                 return <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
               })}
