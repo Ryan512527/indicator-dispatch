@@ -1011,13 +1011,44 @@ ACCESS_LAYER_FAULT_EN_TO_CN = {
 }
 
 
+def _extract_date_from_filename(filename: str) -> Optional[str]:
+    """从文件名中提取日期，用于排序确保最新文件在后。
+
+    支持格式: 2026-06-04, 20260604, 2026年06月04日 等。
+    返回 ISO 日期字符串 "YYYY-MM-DD"，失败返回 None。
+    """
+    patterns = [
+        r"(\d{4})[-/年](\d{1,2})[-/月](\d{1,2})",
+        r"(\d{4})(\d{2})(\d{2})",
+    ]
+    for pat in patterns:
+        m = re.search(pat, filename)
+        if m:
+            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if 2020 <= y <= 2030 and 1 <= mo <= 12 and 1 <= d <= 31:
+                return f"{y:04d}-{mo:02d}-{d:02d}"
+    return None
+
+
+# 接入层通报列关键字 → 英文字段名映射（用于包含匹配）
+_ACCESS_LAYER_KEYWORD_MAP: list[tuple[str, str]] = [
+    ("接入层断纤链路", "fiber_break_link"),
+    ("告警码名称", "alarm_code_name"),
+    ("发生时间", "occurrence_time"),
+    ("具体原因", "specific_reason"),
+    ("是否影响业务", "business_affected"),
+    ("故障历时", "fault_duration"),
+    ("县区", "district"),
+    ("责任人", "responsible_person"),
+]
+
+
 def _parse_access_layer_fault_files(directory: str) -> list[dict]:
     """
-    解析所有"接入层通报"文件，使用 parser 模块正确检测表头，
-    仅保留 县区=="横山" 且 6 个指定字段的记录。
+    直接使用 openpyxl 解析所有"接入层通报"文件。
+    关键字包含匹配表头 → 提取字段 → 过滤县区=="横山"。
     返回 [{"filename": str, "records": [dict]}, ...]
     """
-    from app.parser.service import parse_file as parser_parse_file
     all_results: list[dict] = []
 
     # 递归查找匹配文件
@@ -1029,30 +1060,86 @@ def _parse_access_layer_fault_files(directory: str) -> list[dict]:
             if "接入层通报" in f and f.lower().endswith((".xlsx", ".xls")):
                 matching.append(os.path.join(root, f))
 
-    # 按文件修改时间排序（旧的先处理，新的后处理 → 新文件 id 更大）
-    matching.sort(key=lambda f: os.path.getmtime(f))
+    # 排序：优先按文件名中的日期，回退到 mtime（旧的先处理，新的后处理 → 新文件 id 更大）
+    def _sort_key(filepath: str) -> str:
+        fname = os.path.basename(filepath)
+        date_str = _extract_date_from_filename(fname)
+        if date_str:
+            return date_str
+        # 回退：用 mtime 生成日期
+        mtime = os.path.getmtime(filepath)
+        dt = datetime.fromtimestamp(mtime, tz=timezone.utc)
+        return dt.strftime("%Y-%m-%d")
+
+    matching.sort(key=_sort_key)
 
     for filepath in matching:
         filename = os.path.basename(filepath)
         try:
-            # 使用 parser 模块正确解析（会检测表头行并做中英映射）
-            rows = parser_parse_file(filepath)
-            if not rows:
+            wb = openpyxl.load_workbook(filepath, data_only=True)
+            ws = wb.active
+
+            # ── 步骤1：检测表头行 ──
+            header_row_idx: Optional[int] = None
+            col_map: dict[int, str] = {}  # 列索引 → 英文字段名
+
+            for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
+                matched = 0
+                temp_map: dict[int, str] = {}
+                for col_idx, cell in enumerate(row):
+                    if cell is None:
+                        continue
+                    cell_str = str(cell).strip()
+                    if not cell_str:
+                        continue
+                    # 关键字包含匹配：表头中"接入层断纤链路清单（2026-06-04）"包含"接入层断纤链路"
+                    for kw, en_key in _ACCESS_LAYER_KEYWORD_MAP:
+                        if len(kw) > 2 and kw in cell_str:
+                            temp_map[col_idx] = en_key
+                            matched += 1
+                            break
+
+                if matched >= 3:  # 至少匹配 3 个关键字才认定是表头行
+                    header_row_idx = row_idx
+                    col_map = temp_map
+                    break
+
+            if header_row_idx is None:
+                logger.warning(f"接入层通报: {filename} 未检测到表头行")
+                wb.close()
                 continue
 
+            logger.info(
+                f"接入层通报: {filename} 表头行={header_row_idx}, 匹配列={list(col_map.values())}"
+            )
+
+            # ── 步骤2：提取数据行 ──
             filtered: list[dict] = []
-            for row in rows:
-                # parser 返回的是英文字段名，district 对应 "县区"
-                district = row.get("district", "")
+            for row_idx, row in enumerate(ws.iter_rows(values_only=True)):
+                if row_idx <= header_row_idx:
+                    continue
+
+                # 构建英文字段记录
+                record: dict[str, str] = {}
+                for col_idx, en_key in col_map.items():
+                    val = ""
+                    if col_idx < len(row) and row[col_idx] is not None:
+                        val = str(row[col_idx]).strip()
+                    record[en_key] = val
+
+                # 过滤：县区 == 横山
+                district = record.get("district", "")
                 if district != "横山":
                     continue
 
-                # 只提取 6 个指定字段，映射为中文名称
+                # 只保留 6 个指定字段，映射为中文名称
                 clean: dict[str, str] = {}
                 for en_key, cn_key in ACCESS_LAYER_FAULT_EN_TO_CN.items():
-                    val = row.get(en_key, "")
-                    clean[cn_key] = str(val) if val is not None else ""
+                    val = record.get(en_key, "")
+                    clean[cn_key] = str(val) if val else ""
                 filtered.append(clean)
+
+            wb.close()
 
             all_results.append({
                 "filename": filename,
@@ -1064,7 +1151,7 @@ def _parse_access_layer_fault_files(directory: str) -> list[dict]:
                 logger.info(f"接入层通报横山: {filename} -> 0 条横山记录")
 
         except Exception as e:
-            logger.error(f"解析接入层通报文件失败 {filename}: {e}")
+            logger.error(f"解析接入层通报文件失败 {filename}: {e}", exc_info=True)
 
     return all_results
 
