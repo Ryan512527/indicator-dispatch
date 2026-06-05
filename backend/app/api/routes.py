@@ -448,3 +448,34 @@ async def daily_report_reparse(
     from app.services.report_scanner import reparse_daily_report
     result = await reparse_daily_report(db, directory)
     return {"report_type": "日报", **result}
+
+
+# ── 全市装维工作量统计横山专用 API ──
+
+@router.get("/reports/city-workload/summary")
+async def city_workload_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取全市装维工作量统计横山卡片汇总指标（4个字段）"""
+    from app.services.report_scanner import get_city_workload_summary
+    return await get_city_workload_summary(db)
+
+
+@router.get("/reports/city-workload/workers")
+async def city_workload_workers(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取全市装维工作量统计横山装维人员工作量明细列表"""
+    from app.services.report_scanner import get_city_workload_workers
+    return await get_city_workload_workers(db)
+
+
+@router.post("/reports/city-workload/reparse")
+async def city_workload_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析全市装维工作量统计文件，提取横山汇总指标和人员明细"""
+    from app.services.report_scanner import reparse_city_workload
+    result = await reparse_city_workload(db, directory)
+    return {"report_type": "全市装维工作量统计", **result}

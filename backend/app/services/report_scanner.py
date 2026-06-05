@@ -2296,3 +2296,402 @@ async def get_report_records(
         "page": page,
         "page_size": page_size,
     }
+
+
+# ── 全市装维工作量统计横山数据专用处理 ──
+
+# "汇总"sheet 目标字段关键字
+_CITY_WORKLOAD_SUMMARY_KEYWORDS = {
+    "人员数量": "total_staff",
+    "有工作量人数": "working_staff",
+    "请假人数": "leave_staff",
+    "无工作量占比": "no_work_ratio",
+}
+
+# "到个人"sheet 目标字段
+_CITY_WORKLOAD_WORKER_FIELDS = [
+    "姓名", "区域", "装移拆", "投诉", "LAN口", "巡检",
+    "一户一案", "质差弱光", "小计",
+]
+
+
+def _parse_city_workload_files(directory: str) -> dict:
+    """
+    解析最新的"全市装维工作量统计"文件：
+    1. 从"汇总"sheet 提取横山汇总指标
+    2. 从"到个人"sheet 提取横山装维人员工作量明细
+    返回 {"summary": dict, "workers": [dict], "filename": str, "report_date": str}
+    """
+    from datetime import datetime as _dt
+
+    # 找到最新的全市装维工作量统计文件
+    matching: list[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("~$") or f.startswith("."):
+                continue
+            if "全市装维工作量统计" in f and f.lower().endswith((".xlsx", ".xls")):
+                matching.append(os.path.join(root, f))
+
+    if not matching:
+        return {"summary": None, "workers": [], "filename": None, "report_date": None}
+
+    # 按修改时间排序，取最新
+    matching.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+    latest_file = matching[0]
+    filename = os.path.basename(latest_file)
+
+    # 尝试从文件名提取日期
+    report_date = None
+    date_match = re.search(r'(\d{4})[-年](\d{1,2})[-月](\d{1,2})', filename)
+    if date_match:
+        report_date = f"{date_match.group(1)}-{date_match.group(2).zfill(2)}-{date_match.group(3).zfill(2)}"
+    else:
+        report_date = _dt.now().strftime("%Y-%m-%d")
+
+    try:
+        wb = openpyxl.load_workbook(latest_file, read_only=True, data_only=True)
+
+        # ── 1. 解析"汇总"sheet ──
+        summary = None
+        if "汇总" in wb.sheetnames:
+            ws = wb["汇总"]
+            rows_data = list(ws.iter_rows(values_only=True))
+
+            # 查找横山行并提取指标
+            # 策略：扫描所有行，找到包含"横山"关键字的行，
+            # 同时查找表头行（包含目标字段关键字的行）
+            header_row_idx = None
+            hengshan_row_idx = None
+            hengshan_row = None
+
+            for idx, row in enumerate(rows_data):
+                row_text = " ".join(str(c) for c in row if c)
+                # 检测表头行
+                if header_row_idx is None:
+                    matched_kw = 0
+                    for kw in _CITY_WORKLOAD_SUMMARY_KEYWORDS:
+                        if kw in row_text:
+                            matched_kw += 1
+                    if matched_kw >= 2:
+                        header_row_idx = idx
+
+                # 检测横山数据行
+                if "横山" in row_text or "横山县" in row_text:
+                    hengshan_row_idx = idx
+                    hengshan_row = row
+
+            # 如果找到了表头和横山行，提取数据
+            if header_row_idx is not None and hengshan_row is not None:
+                header_row = rows_data[header_row_idx]
+                summary = {
+                    "district": "横山",
+                    "total_staff": "",
+                    "working_staff": "",
+                    "leave_staff": "",
+                    "no_work_ratio": "",
+                }
+                for col_idx, header_cell in enumerate(header_row):
+                    if header_cell is None:
+                        continue
+                    header_str = str(header_cell).strip()
+                    for kw, key in _CITY_WORKLOAD_SUMMARY_KEYWORDS.items():
+                        if kw in header_str and col_idx < len(hengshan_row):
+                            val = hengshan_row[col_idx]
+                            summary[key] = str(val).strip() if val is not None else ""
+                            break
+
+            if summary:
+                logger.info(f"全市装维工作量统计横山汇总: {filename} -> {summary}")
+            else:
+                logger.warning(f"全市装维工作量统计: {filename} 汇总sheet未找到横山数据")
+        else:
+            logger.warning(f"全市装维工作量统计: {filename} 缺少'汇总'sheet")
+
+        # ── 2. 解析"到个人"sheet ──
+        workers: list[dict] = []
+        if "到个人" in wb.sheetnames:
+            ws2 = wb["到个人"]
+            row_iter = ws2.iter_rows(values_only=True)
+
+            # 读取表头行
+            try:
+                header_row = next(row_iter)
+            except StopIteration:
+                header_row = ()
+
+            if header_row:
+                # 建立列映射：查找"姓名"、"区域"、"积压"、"当日"等列
+                col_map: dict[str, int] = {}
+                backlog_col_map: dict[str, int] = {}   # 工作类型 -> 积压列索引
+                today_col_map: dict[str, int] = {}     # 工作类型 -> 当日列索引
+
+                # 先找到姓名和区域列
+                for idx, cell in enumerate(header_row):
+                    if cell is None:
+                        continue
+                    cell_str = str(cell).strip()
+                    if cell_str == "姓名":
+                        col_map["姓名"] = idx
+                    elif cell_str == "区域":
+                        col_map["区域"] = idx
+                    # 检测工作类型列（可能有"积压"、"当日"子列）
+                    # 尝试匹配已知工作类型
+                    for wt in ["装移拆", "投诉", "LAN口", "巡检", "一户一案", "质差弱光", "小计"]:
+                        if wt in cell_str:
+                            # 检查下一个单元格或当前单元格是否包含"积压"或"当日"
+                            if "积压" in cell_str or (wt == cell_str and idx + 1 < len(header_row)):
+                                backlog_col_map[wt] = idx
+                            elif "当日" in cell_str:
+                                today_col_map[wt] = idx
+                            # 如果当前单元格只是工作类型名，积压通常在它所在列或下一列
+                            elif cell_str == wt and idx not in backlog_col_map.values() and idx not in today_col_map.values():
+                                # 默认先认为是积压列
+                                if wt not in backlog_col_map:
+                                    backlog_col_map[wt] = idx
+
+                # 如果没找到明确的积压/当日映射，尝试通过列位置推断
+                # 常见格式：姓名 | 区域 | 装移拆积压 | 装移拆当日 | 投诉积压 | 投诉当日 | ...
+                if not backlog_col_map and not today_col_map:
+                    for idx, cell in enumerate(header_row):
+                        if cell is None:
+                            continue
+                        cell_str = str(cell).strip()
+                        for wt in ["装移拆", "投诉", "LAN口", "巡检", "一户一案", "质差弱光", "小计"]:
+                            if wt == cell_str:
+                                # 假设奇数列为积压，偶数列为当日（从工作类型开始）
+                                if wt not in backlog_col_map:
+                                    backlog_col_map[wt] = idx
+                                elif wt not in today_col_map:
+                                    today_col_map[wt] = idx
+
+                # 如果还是没找到，采用更宽松的策略：直接找数值列
+                if not col_map.get("姓名") and len(header_row) > 0:
+                    # 假设第一列是姓名
+                    for idx, cell in enumerate(header_row):
+                        if cell and str(cell).strip() == "姓名":
+                            col_map["姓名"] = idx
+                            break
+
+                # 流式遍历数据行
+                for row in row_iter:
+                    if not row:
+                        continue
+
+                    name_idx = col_map.get("姓名")
+                    if name_idx is None or name_idx >= len(row) or not row[name_idx]:
+                        continue
+
+                    worker_name = str(row[name_idx]).strip()
+                    if not worker_name or worker_name == "nan":
+                        continue
+
+                    area_idx = col_map.get("区域")
+                    area = ""
+                    if area_idx is not None and area_idx < len(row) and row[area_idx]:
+                        area = str(row[area_idx]).strip()
+
+                    # 提取各工作类型的积压和当日数据
+                    workload: dict[str, dict[str, int]] = {}
+                    total_backlog = 0
+                    total_today = 0
+
+                    for wt in backlog_col_map:
+                        backlog_idx = backlog_col_map[wt]
+                        today_idx = today_col_map.get(wt)
+
+                        backlog_val = 0
+                        today_val = 0
+
+                        if backlog_idx < len(row) and row[backlog_idx] is not None:
+                            try:
+                                backlog_val = int(float(str(row[backlog_idx]).strip()))
+                            except (ValueError, TypeError):
+                                backlog_val = 0
+
+                        if today_idx is not None and today_idx < len(row) and row[today_idx] is not None:
+                            try:
+                                today_val = int(float(str(row[today_idx]).strip()))
+                            except (ValueError, TypeError):
+                                today_val = 0
+
+                        workload[wt] = {"backlog": backlog_val, "today": today_val}
+                        total_backlog += backlog_val
+                        total_today += today_val
+
+                    workers.append({
+                        "worker_name": worker_name,
+                        "area": area,
+                        "workload": workload,
+                        "total_backlog": total_backlog,
+                        "total_today": total_today,
+                    })
+
+                logger.info(f"全市装维工作量统计横山到个人: {filename} -> {len(workers)} 人")
+            else:
+                logger.warning(f"全市装维工作量统计: {filename} '到个人'sheet无表头")
+        else:
+            logger.warning(f"全市装维工作量统计: {filename} 缺少'到个人'sheet")
+
+        wb.close()
+        return {
+            "summary": summary,
+            "workers": workers,
+            "filename": filename,
+            "report_date": report_date,
+        }
+
+    except Exception as e:
+        logger.error(f"解析全市装维工作量统计失败 {filename}: {e}", exc_info=True)
+        return {"summary": None, "workers": [], "filename": filename, "report_date": report_date}
+
+
+async def reparse_city_workload(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """
+    重新解析全市装维工作量统计文件，提取横山汇总指标和人员明细，更新数据库。
+    删除旧数据并写入新数据。
+    """
+    if directory is None:
+        directory = settings.watch_dir
+
+    # 在线程池中解析
+    result = await asyncio.to_thread(_parse_city_workload_files, directory)
+
+    # 导入模型
+    from app.core.models import CityWorkloadSummary, CityWorkloadWorker
+    from sqlalchemy import delete as _delete
+
+    # 删除旧数据
+    await db.execute(_delete(CityWorkloadSummary))
+    await db.execute(_delete(CityWorkloadWorker))
+
+    # ── 写入汇总表 ──
+    summary_count = 0
+    if result["summary"]:
+        s = result["summary"]
+        cws = CityWorkloadSummary(
+            report_date=result["report_date"] or "",
+            district=s.get("district", "横山"),
+            total_staff=s.get("total_staff", ""),
+            working_staff=s.get("working_staff", ""),
+            leave_staff=s.get("leave_staff", ""),
+            no_work_ratio=s.get("no_work_ratio", ""),
+        )
+        db.add(cws)
+        summary_count = 1
+
+    # ── 获取或创建报表类型 ──
+    stmt = select(ReportType).where(ReportType.name == "全市装维工作量统计")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        report_type = ReportType(name="全市装维工作量统计", category="装维生产")
+        db.add(report_type)
+        await db.flush()
+
+    # 删除旧的 report_files/report_records
+    old_files_stmt = select(ReportFile.id).where(ReportFile.report_type_id == report_type.id)
+    r2 = await db.execute(old_files_stmt)
+    old_file_ids = [row[0] for row in r2.all()]
+    if old_file_ids:
+        await db.execute(_delete(ReportRecord).where(ReportRecord.report_file_id.in_(old_file_ids)))
+        await db.execute(_delete(ReportFile).where(ReportFile.report_type_id == report_type.id))
+
+    # 创建 ReportFile
+    report_file = ReportFile(
+        report_type_id=report_type.id,
+        filename=result["filename"] or "",
+        file_path=os.path.join(directory, result["filename"] or ""),
+        parse_status="parsed",
+        record_count=len(result["workers"]),
+    )
+    db.add(report_file)
+    await db.flush()
+
+    # ── 写入人员明细 ──
+    worker_count = 0
+    for rec in result["workers"]:
+        cw = CityWorkloadWorker(
+            report_file_id=report_file.id,
+            worker_name=rec["worker_name"],
+            area=rec["area"],
+            workload=rec["workload"],
+            total_backlog=rec["total_backlog"],
+            total_today=rec["total_today"],
+        )
+        db.add(cw)
+        worker_count += 1
+
+    # 更新 column_hint
+    report_type.column_hint = ["姓名", "区域", "装移拆", "投诉", "LAN口", "巡检", "一户一案", "质差弱光", "小计"]
+    report_type.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+
+    return {
+        "summary_parsed": summary_count,
+        "worker_count": worker_count,
+        "filename": result["filename"],
+        "report_date": result["report_date"],
+    }
+
+
+async def get_city_workload_summary(db: AsyncSession) -> dict:
+    """获取全市装维工作量统计横山卡片汇总指标"""
+    from app.core.models import CityWorkloadSummary
+
+    stmt = select(CityWorkloadSummary).order_by(CityWorkloadSummary.id.desc()).limit(1)
+    r = await db.execute(stmt)
+    row = r.scalar_one_or_none()
+
+    if not row:
+        return {
+            "district": "横山",
+            "total_staff": "",
+            "working_staff": "",
+            "leave_staff": "",
+            "no_work_ratio": "",
+            "report_date": "",
+        }
+
+    return {
+        "district": row.district,
+        "total_staff": row.total_staff,
+        "working_staff": row.working_staff,
+        "leave_staff": row.leave_staff,
+        "no_work_ratio": row.no_work_ratio,
+        "report_date": row.report_date,
+    }
+
+
+async def get_city_workload_workers(db: AsyncSession) -> dict:
+    """获取全市装维工作量统计横山装维人员工作量明细列表"""
+    from app.core.models import CityWorkloadWorker
+    from sqlalchemy import func as _func
+
+    count_stmt = select(_func.count(CityWorkloadWorker.id))
+    r = await db.execute(count_stmt)
+    total = r.scalar() or 0
+
+    data_stmt = (
+        select(CityWorkloadWorker)
+        .order_by(CityWorkloadWorker.total_backlog.desc())
+    )
+    r2 = await db.execute(data_stmt)
+    rows = r2.scalars().all()
+
+    workers = []
+    for row in rows:
+        workers.append({
+            "id": row.id,
+            "worker_name": row.worker_name,
+            "area": row.area,
+            "workload": row.workload or {},
+            "total_backlog": row.total_backlog,
+            "total_today": row.total_today,
+        })
+
+    return {
+        "workers": workers,
+        "total": total,
+    }

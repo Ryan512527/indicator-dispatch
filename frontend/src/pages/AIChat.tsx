@@ -55,7 +55,7 @@ export function AIChat() {
     const data = res.data
     if (data.type === 'text') return data.content || ''
     if (data.type === 'table') return `Found ${data.rows?.length || 0} records`
-    if (data.type === 'bar' && data.title) return data.title
+    if (data.type === 'bar') return data.content || 'Chart data'
     return 'Query completed'
   }
 

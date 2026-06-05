@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -958,6 +958,116 @@ function DailyReportCard({ color, onNavigate }: { color: string; onNavigate: (p:
   )
 }
 
+// ── 全市装维工作量统计专用卡片 ──
+function CityWorkloadCard({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<CityWorkloadSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getCityWorkloadSummary()
+      .then(data => setSummary(data as CityWorkloadSummary))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '16px 20px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        display: 'flex', flexDirection: 'column',
+        minHeight: 200,
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', marginBottom: 10 }}>全市装维工作量统计</div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 12 }}>
+          加载中...
+        </div>
+      </div>
+    )
+  }
+
+  const reportDate = summary?.report_date || ''
+
+  return (
+    <div
+      onClick={() => onNavigate({ name: 'city-workload-detail' })}
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        cursor: 'pointer',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        transition: 'transform 0.15s, box-shadow 0.15s',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'
+      }}
+    >
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>全市装维工作量统计</div>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 10,
+            background: '#eff6ff',
+            color: '#3b82f6',
+            fontSize: 11,
+            fontWeight: 600,
+          }}>
+            横山
+          </span>
+        </div>
+        <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
+          {reportDate || '—'}
+        </span>
+      </div>
+
+      {/* 4个核心指标 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 10 }}>
+        {[
+          { label: '人员数量', value: summary?.total_staff || '—', key: 'total_staff', bg: '#f8fafc', color: '#1e40af' },
+          { label: '有工作量人数', value: summary?.working_staff || '—', key: 'working_staff', bg: '#f0fdf4', color: '#166534' },
+          { label: '请假人数', value: summary?.leave_staff || '—', key: 'leave_staff', bg: '#fef2f2', color: '#dc2626' },
+          { label: '无工作量占比', value: summary?.no_work_ratio || '—', key: 'no_work_ratio', bg: '#fff7ed', color: '#c2410c' },
+        ].map(item => (
+          <div key={item.key} style={{
+            textAlign: 'center',
+            background: item.bg,
+            borderRadius: 8,
+            padding: '10px 6px',
+          }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: item.color, lineHeight: 1.2 }}>
+              {item.value}
+            </div>
+            <div style={{ fontSize: 10, color: '#888', marginTop: 4 }}>
+              {item.label}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 底部 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>📄 {reportDate ? `统计 ${reportDate}` : '—'}</span>
+          <span style={{ color: '#3b82f6' }}>点击查看人员明细 →</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 分类报表看板 ──
 function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [reportTypes, setReportTypes] = useState<ReportType[]>([])
@@ -1042,6 +1152,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 // 日用专用卡片
                 if (rt.name === '日报') {
                   return <DailyReportCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
+                // 全市装维工作量统计用专用卡片
+                if (rt.name === '全市装维工作量统计') {
+                  return <CityWorkloadCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
                 return <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
               })}

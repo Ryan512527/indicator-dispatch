@@ -63,7 +63,8 @@ export type Page =
   | { name: "pisite-fault-detail" }
   | { name: "access-layer-fault-detail" }
   | { name: "enterprise-broadband-backlog" }
-  | { name: "daily-report-detail" };
+  | { name: "daily-report-detail" }
+  | { name: "city-workload-detail" };
 
 export interface WirelessOutageSummary {
   total: number;
@@ -156,4 +157,22 @@ export interface DailyReportBacklogRecord {
   时长提醒: string;
   用户品牌: string;
   数据来源: string;
+}
+
+export interface CityWorkloadSummary {
+  district: string;
+  total_staff: string;
+  working_staff: string;
+  leave_staff: string;
+  no_work_ratio: string;
+  report_date: string;
+}
+
+export interface CityWorkloadWorker {
+  id: number;
+  worker_name: string;
+  area: string;
+  workload: Record<string, { backlog: number; today: number }>;
+  total_backlog: number;
+  total_today: number;
 }

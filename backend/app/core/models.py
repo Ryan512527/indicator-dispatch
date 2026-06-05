@@ -151,3 +151,34 @@ class DailyReportBacklog(Base):
     user_brand = Column(String(50), comment="用户品牌")
     data_source = Column(String(20), comment="数据来源：宽带积压 / FTTR积压")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+# ── 全市装维工作量统计专用模型 ──
+
+class CityWorkloadSummary(Base):
+    """全市装维工作量统计 - 横山汇总指标（来自"汇总"sheet）"""
+    __tablename__ = "city_workload_summary"
+
+    id = Column(BigInteger, primary_key=True)
+    report_date = Column(String(50), comment="通报日期")
+    district = Column(String(50), default="横山", comment="区县")
+    total_staff = Column(String(50), comment="人员数量")
+    working_staff = Column(String(50), comment="有工作量人数（当日）")
+    leave_staff = Column(String(50), comment="请假人数")
+    no_work_ratio = Column(String(50), comment="无工作量占比（剔除请假）")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class CityWorkloadWorker(Base):
+    """全市装维工作量统计 - 横山装维人员工作量明细（来自"到个人"sheet）"""
+    __tablename__ = "city_workload_workers"
+
+    id = Column(BigInteger, primary_key=True)
+    report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=False, index=True)
+    worker_name = Column(String(50), comment="装维人员姓名")
+    area = Column(String(100), comment="所属区域")
+    # 积压和当日工作量按工作类型存储为JSON，结构: {"装移拆": {"backlog": 4, "today": 0}, ...}
+    workload = Column(JSON, default=dict, comment="各工作类型积压和当日工作量")
+    total_backlog = Column(Integer, default=0, comment="累计积压总量")
+    total_today = Column(Integer, default=0, comment="当日工作量总计")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

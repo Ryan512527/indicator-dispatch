@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -185,6 +185,22 @@ export const api = {
 
   reparseDailyReport: async () => {
     const res = await fetch(`${BASE}/reports/daily-report/reparse`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
+    return res.json();
+  },
+
+  // ── 全市装维工作量统计横山专用 APIs ──
+  getCityWorkloadSummary: () =>
+    fetchJson<CityWorkloadSummary>('/reports/city-workload/summary'),
+
+  getCityWorkloadWorkers: () =>
+    fetchJson<{
+      workers: CityWorkloadWorker[];
+      total: number;
+    }>('/reports/city-workload/workers'),
+
+  reparseCityWorkload: async () => {
+    const res = await fetch(`${BASE}/reports/city-workload/reparse`, { method: 'POST' });
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
     return res.json();
   },
