@@ -1826,9 +1826,8 @@ def _parse_category_sheet(ws, sheet_label: str, target_fields: list[str]) -> dic
         logger.info(f"日报 {sheet_label} sheet 未找到横山行")
         return None
 
-    # 查找表头行：在横山行上方最近的非标题行
-    # 跳过第一行（通常是标题），在横山行上方找包含指标关键字的行
-    for idx in range(max(1, hengshan_row_idx - 3), hengshan_row_idx):
+    # 查找表头行：从第1行开始（跳过标题行0），向横山行方向搜索包含指标关键字的行
+    for idx in range(1, hengshan_row_idx):
         row = rows_data[idx]
         row_text = " ".join(str(c) for c in row if c)
         # 检查是否包含"积压总量"或"转化率"等指标关键字
@@ -1893,22 +1892,48 @@ def _parse_backlog_sheet(ws, filename: str) -> list[dict]:
         logger.warning(f"日报宽带积压 sheet 未检测到表头行: {filename}")
         return []
 
-    # 建立列映射
+    # 建立列映射（字段名匹配，>=2字符防止单字符误匹配）
     col_map: dict[str, int] = {}
+    
+    # 先处理需要语义回退的特殊字段
+    _SEMANTIC_ALIASES = {
+        "用户品牌": "客户等级",
+    }
+    
     for idx, cell in enumerate(header_row):
         if cell is None:
             continue
         cell_str = str(cell).strip()
         for field in BACKLOG_FIELDS:
-            if len(field) >= 3 and field in cell_str:
+            if len(field) >= 2 and field in cell_str:
                 col_map[field] = idx
                 break
+    
+    # 语义回退：如果原始字段没匹配到，用别名再试
+    for field, alias in _SEMANTIC_ALIASES.items():
+        if field not in col_map:
+            for idx, cell in enumerate(header_row):
+                if cell is None:
+                    continue
+                cell_str = str(cell).strip()
+                if alias in cell_str:
+                    col_map[field] = idx
+                    logger.info(f"日报宽带积压: '{field}' 语义回退到 '{alias}' col={idx}")
+                    break
 
     # 验证关键字段
     missing = [f for f in ["所属区县", "宽带账号"] if f not in col_map]
     if missing:
         logger.warning(f"日报宽带积压 sheet 缺少关键字段: {missing}")
         return []
+
+    # "积压时长h" 特殊处理：表头单元格为合并残留（None或数字），
+    # 查找 col1 位置（通常是积压时长数值列，值为数字型小时数）
+    if "积压时长h" not in col_map:
+        # 检查 col1：如果表头为 None 且数据行为数值，则认定为积压时长列
+        if len(header_row) > 1 and header_row[1] is None:
+            col_map["积压时长h"] = 1
+            logger.info("日报宽带积压: '积压时长h' 通过 col1 (合并单元格) 检测到")
 
     max_col_idx = max(col_map.values())
 
@@ -1941,20 +1966,21 @@ def _parse_backlog_sheet(ws, filename: str) -> list[dict]:
         to_install_str = _get("到装维时间")
 
         if deadline_str and to_install_str:
-            try:
-                # 尝试多种日期格式
-                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M"]:
-                    try:
-                        deadline_dt = _dt.strptime(deadline_str[:len(fmt)], fmt)
-                        to_install_dt = _dt.strptime(to_install_str[:len(fmt)], fmt)
-                        diff = deadline_dt - to_install_dt
-                        hours = diff.total_seconds() / 3600.0
-                        install_duration = f"{hours:.2f}"
-                        break
-                    except (ValueError, TypeError):
-                        continue
-            except Exception:
-                install_duration = ""
+            # 尝试多种日期格式
+            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S",
+                        "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M",
+                        "%Y-%m-%d", "%Y/%m/%d"]:
+                try:
+                    dl = deadline_str.strip()
+                    ti = to_install_str.strip()
+                    deadline_dt = _dt.strptime(dl, fmt)
+                    to_install_dt = _dt.strptime(ti, fmt)
+                    diff = deadline_dt - to_install_dt
+                    hours = diff.total_seconds() / 3600.0
+                    install_duration = f"{hours:.2f}"
+                    break
+                except (ValueError, TypeError):
+                    continue
 
         # 计算积压时长提醒标签
         duration_warning = ""
