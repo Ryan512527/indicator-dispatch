@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -326,6 +326,153 @@ function WirelessOutageCard({ color, onNavigate }: { color: string; onNavigate: 
   )
 }
 
+// ── 皮站故障专用卡片 ──
+function PisiteFaultCard({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<PisiteFaultSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getPisiteFaultSummary()
+      .then(data => setSummary(data as PisiteFaultSummary))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '16px 20px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        display: 'flex', flexDirection: 'column',
+        minHeight: 160,
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', marginBottom: 10 }}>皮站故障清单</div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 12 }}>
+          加载中...
+        </div>
+      </div>
+    )
+  }
+
+  const total = summary?.total ?? 0
+  const vendors = summary?.vendors ?? []
+  const latestFilename = summary?.latest_filename
+
+  return (
+    <div
+      onClick={() => onNavigate({ name: 'pisite-fault-detail' })}
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        cursor: 'pointer',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        transition: 'transform 0.15s, box-shadow 0.15s',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'
+      }}
+    >
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>皮站故障清单</div>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 10,
+            background: '#fef2f2',
+            color: '#ef4444',
+            fontSize: 11,
+            fontWeight: 600,
+          }}>
+            横山
+          </span>
+        </div>
+        <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
+          {latestFilename ? latestFilename.substring(0, 20) + '...' : '—'}
+        </span>
+      </div>
+
+      {/* 核心数字 */}
+      <div style={{ textAlign: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 42, fontWeight: 700, color: total > 0 ? '#ef4444' : '#22c55e', lineHeight: 1.1 }}>
+          {total}
+        </div>
+        <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+          当前皮站故障数
+        </div>
+      </div>
+
+      {/* 设备厂商列表 */}
+      {vendors.length > 0 ? (
+        <div style={{
+          flex: 1,
+          background: '#fafafa',
+          borderRadius: 8,
+          padding: '10px 12px',
+          marginBottom: 8,
+        }}>
+          <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>设备厂商</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 6px' }}>
+            {vendors.slice(0, 6).map((name, i) => (
+              <span key={i} style={{
+                display: 'inline-block',
+                padding: '2px 8px',
+                borderRadius: 4,
+                background: '#fff',
+                border: '1px solid #e5e7eb',
+                color: '#374151',
+                fontSize: 11,
+                whiteSpace: 'nowrap',
+              }}>
+                {name}
+              </span>
+            ))}
+            {vendors.length > 6 && (
+              <span style={{ fontSize: 11, color: '#999', alignSelf: 'center' }}>
+                +{vendors.length - 6} 个
+              </span>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          flex: 1,
+          background: '#f0fdf4',
+          borderRadius: 8,
+          padding: '10px 12px',
+          marginBottom: 8,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}>
+          <span style={{ fontSize: 12, color: '#22c55e' }}>✅ 当前无皮站故障</span>
+        </div>
+      )}
+
+      {/* 底部信息 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename || ''}>
+            📄 {latestFilename || '—'}
+          </span>
+          <span>点击查看详情 →</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 分类报表看板 ──
 function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [reportTypes, setReportTypes] = useState<ReportType[]>([])
@@ -394,6 +541,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 // 无线退服清单用专用卡片
                 if (rt.name === '无线退服清单') {
                   return <WirelessOutageCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
+                // 皮站故障清单用专用卡片
+                if (rt.name === '皮站故障清单') {
+                  return <PisiteFaultCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
                 return <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
               })}

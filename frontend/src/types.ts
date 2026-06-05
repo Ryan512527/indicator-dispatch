@@ -59,7 +59,8 @@ export type Page =
   | { name: "ai-chat" }
   | { name: "detail"; params: { start?: string; end?: string; title?: string; category?: string } }
   | { name: "report-detail"; params: { id: number; name: string } }
-  | { name: "wireless-outage-detail" };
+  | { name: "wireless-outage-detail" }
+  | { name: "pisite-fault-detail" };
 
 export interface WirelessOutageSummary {
   total: number;
@@ -71,4 +72,11 @@ export interface WirelessOutageSummary {
 export interface WirelessOutageTrend {
   hour: string;
   count: number;
+}
+
+export interface PisiteFaultSummary {
+  total: number;
+  vendors: string[];
+  latest_time: string | null;
+  latest_filename: string | null;
 }

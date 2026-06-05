@@ -724,7 +724,271 @@ async def get_wireless_outage_trend(db: AsyncSession, hours: int = 48) -> List[D
     return trend
 
 
-async def get_report_records(
+# ── 皮站故障横山数据专用处理 ──
+
+# 皮站故障清单保留字段（仅提取这5个字段）
+PISITE_FAULT_FIELDS = [
+    "网络类型",      # network_type
+    "基站名称",      # station_name
+    "网管状态",      # nms_status
+    "设备厂商",      # vendor
+    "设备类型",      # device_type
+]
+
+# 英文到中文映射
+PISITE_FAULT_EN_TO_CN = {
+    "network_type": "网络类型",
+    "station_name": "基站名称",
+    "nms_status": "网管状态",
+    "vendor": "设备厂商",
+    "device_type": "设备类型",
+}
+
+
+def _parse_pisite_fault_files(directory: str) -> list[dict]:
+    """
+    解析所有"皮站故障清单"文件，使用 parser 模块正确检测表头，
+    仅保留 县区=="横山" 且 5 个指定字段的记录。
+    返回 [{"filename": str, "records": [dict]}, ...]
+    """
+    from app.parser.service import parse_file as parser_parse_file
+    all_results: list[dict] = []
+
+    # 递归查找匹配文件
+    matching: list[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("~$") or f.startswith("."):
+                continue
+            if "皮站故障清单" in f and f.lower().endswith((".xlsx", ".xls")):
+                matching.append(os.path.join(root, f))
+
+    # 按文件修改时间排序（旧的先处理，新的后处理 → 新文件 id 更大）
+    matching.sort(key=lambda f: os.path.getmtime(f))
+
+    for filepath in matching:
+        filename = os.path.basename(filepath)
+        try:
+            # 使用 parser 模块正确解析（会检测表头行并做中英映射）
+            rows = parser_parse_file(filepath)
+            if not rows:
+                continue
+
+            filtered: list[dict] = []
+            for row in rows:
+                # parser 返回的是英文字段名，district 对应 "县区"
+                district = row.get("district", "")
+                if district != "横山":
+                    continue
+
+                # 只提取 5 个指定字段，映射为中文名称
+                clean: dict[str, str] = {}
+                for en_key, cn_key in PISITE_FAULT_EN_TO_CN.items():
+                    val = row.get(en_key, "")
+                    clean[cn_key] = str(val) if val is not None else ""
+                filtered.append(clean)
+
+            all_results.append({
+                "filename": filename,
+                "records": filtered,
+            })
+            if filtered:
+                logger.info(f"皮站故障横山: {filename} -> {len(filtered)} 条横山记录")
+            else:
+                logger.info(f"皮站故障横山: {filename} -> 0 条横山记录")
+
+        except Exception as e:
+            logger.error(f"解析皮站故障文件失败 {filename}: {e}")
+
+    return all_results
+
+
+async def reparse_pisite_fault(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """
+    重新解析皮站故障清单文件，仅保留横山区 5 个字段，更新数据库。
+    删除旧的皮站故障 report_records 并写入新数据。
+    """
+    if directory is None:
+        directory = settings.watch_dir
+
+    # 获取或创建"皮站故障清单"报表类型
+    stmt = select(ReportType).where(ReportType.name == "皮站故障清单")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        report_type = ReportType(name="皮站故障清单", category="故障")
+        db.add(report_type)
+        await db.flush()
+
+    # 删除旧的皮站故障记录（通过 report_files 关联删除 report_records）
+    old_files_stmt = select(ReportFile.id).where(ReportFile.report_type_id == report_type.id)
+    r2 = await db.execute(old_files_stmt)
+    old_file_ids = [row[0] for row in r2.all()]
+    if old_file_ids:
+        from sqlalchemy import delete as _delete
+        await db.execute(_delete(ReportRecord).where(ReportRecord.report_file_id.in_(old_file_ids)))
+        await db.execute(_delete(ReportFile).where(ReportFile.report_type_id == report_type.id))
+
+    # 在线程池中解析
+    file_results = await asyncio.to_thread(_parse_pisite_fault_files, directory)
+
+    total_records = 0
+    files_parsed = 0
+    files_skipped = 0
+    all_columns = set(PISITE_FAULT_FIELDS)
+
+    for fr in file_results:
+        filename = fr["filename"]
+        records = fr["records"]
+
+        report_file = ReportFile(
+            report_type_id=report_type.id,
+            filename=filename,
+            file_path=os.path.join(directory, filename),
+            parse_status="parsed",
+            record_count=len(records),
+        )
+        db.add(report_file)
+        await db.flush()
+
+        for row in records:
+            db.add(ReportRecord(report_file_id=report_file.id, data=row))
+
+        total_records += len(records)
+        if records:
+            files_parsed += 1
+        else:
+            files_skipped += 1
+
+    # 更新 column_hint
+    report_type.column_hint = list(all_columns)
+    report_type.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+
+    return {
+        "total_records": total_records,
+        "files_parsed": files_parsed,
+        "files_skipped": files_skipped,
+    }
+
+
+async def get_pisite_fault_summary(db: AsyncSession) -> dict:
+    """获取皮站故障横山数据概要：仅最新一份文件的故障总数 + 设备厂商列表"""
+    stmt = select(ReportType).where(ReportType.name == "皮站故障清单")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        return {"total": 0, "vendors": [], "latest_time": None, "latest_filename": None}
+
+    # 找到最新的 ReportFile（按 id 降序，id 大的 = 最新入库）
+    latest_file_stmt = (
+        select(ReportFile.id, ReportFile.filename, ReportFile.record_count)
+        .where(ReportFile.report_type_id == report_type.id)
+        .order_by(ReportFile.id.desc())
+        .limit(1)
+    )
+    r2 = await db.execute(latest_file_stmt)
+    latest_row = r2.first()
+    if not latest_row:
+        return {"total": 0, "vendors": [], "latest_time": None, "latest_filename": None}
+
+    latest_file_id, latest_filename, record_count = latest_row
+
+    if record_count == 0:
+        return {"total": 0, "vendors": [], "latest_time": None, "latest_filename": latest_filename}
+
+    # 仅查询最新文件的记录
+    data_stmt = (
+        select(ReportRecord.data)
+        .where(ReportRecord.report_file_id == latest_file_id)
+        .order_by(ReportRecord.id.desc())
+    )
+    r3 = await db.execute(data_stmt)
+    rows = r3.all()
+
+    records = [dict(row[0]) for row in rows]
+
+    # 统计设备厂商（去重）
+    vendors: list[str] = []
+    seen_vendors = set()
+    for rec in records:
+        vendor = rec.get("设备厂商", "")
+        if vendor and vendor not in seen_vendors:
+            vendors.append(vendor)
+            seen_vendors.add(vendor)
+
+    return {
+        "total": len(records),
+        "vendors": vendors,
+        "latest_time": None,  # 皮站故障清单没有时间字段
+        "latest_filename": latest_filename,
+    }
+
+
+async def get_pisite_fault_detail(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
+    """分页获取皮站故障横山详细数据：仅最新一份文件的5个字段数据"""
+    stmt = select(ReportType).where(ReportType.name == "皮站故障清单")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        return {"records": [], "total": 0, "page": page, "page_size": page_size, "latest_filename": None}
+
+    # 找到最新的 ReportFile
+    latest_file_stmt = (
+        select(ReportFile.id, ReportFile.filename, ReportFile.record_count)
+        .where(ReportFile.report_type_id == report_type.id)
+        .order_by(ReportFile.id.desc())
+        .limit(1)
+    )
+    r2 = await db.execute(latest_file_stmt)
+    latest_row = r2.first()
+    if not latest_row:
+        return {"records": [], "total": 0, "page": page, "page_size": page_size, "latest_filename": None}
+
+    latest_file_id, latest_filename, record_count = latest_row
+
+    if record_count == 0:
+        return {"records": [], "total": 0, "page": page, "page_size": page_size, "latest_filename": latest_filename}
+
+    # 仅查询最新文件的记录
+    data_stmt = (
+        select(ReportRecord.data, ReportFile.filename, ReportRecord.created_at)
+        .join(ReportFile, ReportRecord.report_file_id == ReportFile.id)
+        .where(ReportRecord.report_file_id == latest_file_id)
+        .order_by(ReportRecord.id.desc())
+    )
+    r3 = await db.execute(data_stmt)
+    rows = r3.all()
+
+    all_records = []
+    for row in rows:
+        data, filename, created_at = row
+        record = dict(data)
+        record["_source_file"] = filename
+        record["_created_at"] = created_at.isoformat() if created_at else ""
+        all_records.append(record)
+
+    total = len(all_records)
+
+    # 分页
+    offset = (page - 1) * page_size
+    records = all_records[offset:offset + page_size]
+
+    return {
+        "records": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "latest_filename": latest_filename,
+    }
+
+
+
     report_type_id: int,
     db: AsyncSession,
     page: int = 1,

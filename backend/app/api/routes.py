@@ -316,3 +316,36 @@ async def wireless_outage_reparse(
     from app.services.report_scanner import reparse_wireless_outage
     result = await reparse_wireless_outage(db, directory)
     return {"report_type": "无线退服清单", **result}
+
+
+# ── 皮站故障横山专用 API ──
+
+@router.get("/reports/pisite-fault/summary")
+async def pisite_fault_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取皮站故障横山数据概要：故障总数 + 设备厂商列表"""
+    from app.services.report_scanner import get_pisite_fault_summary
+    return await get_pisite_fault_summary(db)
+
+
+@router.get("/reports/pisite-fault/detail")
+async def pisite_fault_detail(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """分页获取皮站故障横山详细数据（仅5个字段）"""
+    from app.services.report_scanner import get_pisite_fault_detail
+    return await get_pisite_fault_detail(db, page, page_size)
+
+
+@router.post("/reports/pisite-fault/reparse")
+async def pisite_fault_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析皮站故障清单文件，仅保留横山区5个字段"""
+    from app.services.report_scanner import reparse_pisite_fault
+    result = await reparse_pisite_fault(db, directory)
+    return {"report_type": "皮站故障清单", **result}

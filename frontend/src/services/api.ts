@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -101,6 +101,27 @@ export const api = {
 
   reparseWirelessOutage: async () => {
     const res = await fetch(`${BASE}/reports/wireless-outage/reparse`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
+    return res.json();
+  },
+
+  // ── 皮站故障横山专用 APIs ──
+  getPisiteFaultSummary: () =>
+    fetchJson<PisiteFaultSummary>('/reports/pisite-fault/summary'),
+
+  getPisiteFaultDetail: (page = 1, pageSize = 50) =>
+    fetchJson<{
+      records: Record<string, string>[];
+      total: number;
+      page: number;
+      page_size: number;
+    }>('/reports/pisite-fault/detail', {
+      page: String(page),
+      page_size: String(pageSize),
+    }),
+
+  reparsePisiteFault: async () => {
+    const res = await fetch(`${BASE}/reports/pisite-fault/reparse`, { method: 'POST' });
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
     return res.json();
   },
