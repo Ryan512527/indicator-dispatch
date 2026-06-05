@@ -140,15 +140,18 @@ export function AccessLayerFaultDetail({ onBack }: { onBack: () => void }) {
                       <td style={{ padding: '6px 10px', color: '#aaa' }}>
                         {(page - 1) * pageSize + idx + 1}
                       </td>
-                      {DISPLAY_FIELDS.map((field) => (
+                      {DISPLAY_FIELDS.map((field) => {
+                          const isLongField = field === '接入层断纤链路'
+                          return (
                         <td
                           key={field}
                           style={{
                             padding: '6px 10px',
-                            whiteSpace: 'nowrap',
-                            maxWidth: 160,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
+                            whiteSpace: isLongField ? 'normal' : 'nowrap',
+                            wordBreak: isLongField ? 'break-all' : undefined,
+                            maxWidth: isLongField ? 400 : 160,
+                            overflow: isLongField ? 'visible' : 'hidden',
+                            textOverflow: isLongField ? undefined : 'ellipsis',
                           }}
                           title={rec[field] || ''}
                         >
@@ -160,7 +163,8 @@ export function AccessLayerFaultDetail({ onBack }: { onBack: () => void }) {
                                 : rec[field] || '—'
                             : rec[field] || '—'}
                         </td>
-                      ))}
+                          )
+                        })}
                       <td
                         style={{
                           padding: '6px 10px',
