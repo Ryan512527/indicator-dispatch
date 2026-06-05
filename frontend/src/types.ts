@@ -60,7 +60,8 @@ export type Page =
   | { name: "detail"; params: { start?: string; end?: string; title?: string; category?: string } }
   | { name: "report-detail"; params: { id: number; name: string } }
   | { name: "wireless-outage-detail" }
-  | { name: "pisite-fault-detail" };
+  | { name: "pisite-fault-detail" }
+  | { name: "access-layer-fault-detail" };
 
 export interface WirelessOutageSummary {
   total: number;
@@ -77,6 +78,15 @@ export interface WirelessOutageTrend {
 export interface PisiteFaultSummary {
   total: number;
   vendors: string[];
+  latest_time: string | null;
+  latest_filename: string | null;
+}
+
+export interface AccessLayerFaultSummary {
+  total: number;
+  business_affected: number;
+  business_unaffected: number;
+  alarm_code_names: string[];
   latest_time: string | null;
   latest_filename: string | null;
 }

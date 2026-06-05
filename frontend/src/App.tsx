@@ -6,6 +6,7 @@ import { AIChat } from './pages/AIChat'
 import { ReportDetail } from './pages/ReportDetail'
 import { WirelessOutageDetail } from './pages/WirelessOutageDetail'
 import { PisiteFaultDetail } from './pages/PisiteFaultDetail'
+import { AccessLayerFaultDetail } from './pages/AccessLayerFaultDetail'
 import type { Page } from './types'
 
 
@@ -20,6 +21,7 @@ export default function App() {
         page.name === 'report-detail' ? `/reports/${page.params?.id}` :
         page.name === 'wireless-outage-detail' ? '/wireless-outage' :
         page.name === 'pisite-fault-detail' ? '/pisite-fault' :
+        page.name === 'access-layer-fault-detail' ? '/access-layer-fault' :
         ''
       }
       onNavigate={(p: string | Page) => {
@@ -37,6 +39,7 @@ export default function App() {
       {page.name === 'report-detail' && <ReportDetail reportTypeId={page.params?.id || 0} />}
       {page.name === 'wireless-outage-detail' && <WirelessOutageDetail onBack={() => setPage({ name: 'dashboard' })} />}
       {page.name === 'pisite-fault-detail' && <PisiteFaultDetail onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'access-layer-fault-detail' && <AccessLayerFaultDetail onBack={() => setPage({ name: 'dashboard' })} />}
     </Layout>
   )
 }
