@@ -2358,32 +2358,41 @@ def _parse_city_workload_files(directory: str) -> dict:
             ws = wb["汇总"]
             rows_data = list(ws.iter_rows(values_only=True))
 
-            # 查找横山行并提取指标
-            # 策略：扫描所有行，找到包含"横山"关键字的行，
-            # 同时查找表头行（包含目标字段关键字的行）
-            header_row_idx = None
+            # 表头跨两行（Row1=分组标题, Row2=子标题），需要合并扫描
+            # 构建 keyword -> col_index 的映射（扫描所有header行）
+            keyword_col_map: dict[str, int] = {}
             hengshan_row_idx = None
             hengshan_row = None
 
-            for idx, row in enumerate(rows_data):
+            for idx, row in enumerate(rows_data[:5]):  # 只扫描前5行作为header区域
                 row_text = " ".join(str(c) for c in row if c)
-                # 检测表头行
-                if header_row_idx is None:
-                    matched_kw = 0
+                for col_i, cell in enumerate(row):
+                    if cell is None:
+                        continue
+                    cell_str = str(cell).strip()
                     for kw in _CITY_WORKLOAD_SUMMARY_KEYWORDS:
-                        if kw in row_text:
-                            matched_kw += 1
-                    if matched_kw >= 2:
-                        header_row_idx = idx
+                        if kw in cell_str and kw not in keyword_col_map:
+                            keyword_col_map[kw] = col_i
 
-                # 检测横山数据行
+                # 同时检测横山数据行
                 if "横山" in row_text or "横山县" in row_text:
                     hengshan_row_idx = idx
                     hengshan_row = row
+                if "合计" in row_text:
+                    break  # 合计行是数据行，不是header
 
-            # 如果找到了表头和横山行，提取数据
-            if header_row_idx is not None and hengshan_row is not None:
-                header_row = rows_data[header_row_idx]
+            # 继续扫描剩余数据行找横山
+            if hengshan_row is None:
+                for idx in range(5, len(rows_data)):
+                    row = rows_data[idx]
+                    row_text = " ".join(str(c) for c in row if c)
+                    if "横山" in row_text or "横山县" in row_text:
+                        hengshan_row_idx = idx
+                        hengshan_row = row
+                        break
+
+            # 提取数据
+            if keyword_col_map and hengshan_row is not None:
                 summary = {
                     "district": "横山",
                     "total_staff": "",
@@ -2391,15 +2400,23 @@ def _parse_city_workload_files(directory: str) -> dict:
                     "leave_staff": "",
                     "no_work_ratio": "",
                 }
-                for col_idx, header_cell in enumerate(header_row):
-                    if header_cell is None:
-                        continue
-                    header_str = str(header_cell).strip()
-                    for kw, key in _CITY_WORKLOAD_SUMMARY_KEYWORDS.items():
-                        if kw in header_str and col_idx < len(hengshan_row):
-                            val = hengshan_row[col_idx]
-                            summary[key] = str(val).strip() if val is not None else ""
-                            break
+                for kw, key in _CITY_WORKLOAD_SUMMARY_KEYWORDS.items():
+                    col_idx = keyword_col_map.get(kw)
+                    if col_idx is not None and col_idx < len(hengshan_row):
+                        val = hengshan_row[col_idx]
+                        if val is not None:
+                            val_str = str(val).strip()
+                            # 百分比格式化
+                            if "占比" in kw or "率" in kw:
+                                try:
+                                    pct = float(val_str)
+                                    if pct < 1:
+                                        val_str = f"{pct * 100:.1f}%"
+                                    else:
+                                        val_str = f"{pct:.1f}%"
+                                except (ValueError, TypeError):
+                                    pass
+                            summary[key] = val_str
 
             if summary:
                 logger.info(f"全市装维工作量统计横山汇总: {filename} -> {summary}")
@@ -2412,108 +2429,145 @@ def _parse_city_workload_files(directory: str) -> dict:
         workers: list[dict] = []
         if "到个人" in wb.sheetnames:
             ws2 = wb["到个人"]
-            row_iter = ws2.iter_rows(values_only=True)
+            rows_data2 = list(ws2.iter_rows(values_only=True))
 
-            # 读取表头行
-            try:
-                header_row = next(row_iter)
-            except StopIteration:
-                header_row = ()
+            # 表头结构: Row0=标题, Row1=分组标题(县区/姓名/累计积压量/当日工作量统计), Row2=子标题(详细列名)
+            # 跳过Row0(标题行)，组合Row1+Row2来理解列含义
+            if len(rows_data2) >= 3:
+                row1 = rows_data2[1]  # 分组标题: 县区, 姓名, 账号, 岗位, 网格, 累计积压量, ..., 当日工作量统计, ...
+                row2 = rows_data2[2]  # 子标题: 装移拆, 投诉, LAN口（到个人）, ...
 
-            if header_row:
-                # 建立列映射：查找"姓名"、"区域"、"积压"、"当日"等列
-                col_map: dict[str, int] = {}
-                backlog_col_map: dict[str, int] = {}   # 工作类型 -> 积压列索引
-                today_col_map: dict[str, int] = {}     # 工作类型 -> 当日列索引
+                # 建立列映射
+                name_col = None
+                area_col = None
+                # 工作类型 -> {"backlog": col_idx, "today": col_idx}
+                wt_col_map: dict[str, dict[str, int]] = {}
+                # 记录"累计积压量"组和"当日工作量统计"组的起始列
+                backlog_group_start = None
+                today_group_start = None
 
-                # 先找到姓名和区域列
-                for idx, cell in enumerate(header_row):
+                # 第一遍：从Row1找到区县、姓名、以及"累计积压量"和"当日工作量统计"分组起始列
+                for idx, cell in enumerate(row1):
                     if cell is None:
                         continue
                     cell_str = str(cell).strip()
-                    if cell_str == "姓名":
-                        col_map["姓名"] = idx
-                    elif cell_str == "区域":
-                        col_map["区域"] = idx
-                    # 检测工作类型列（可能有"积压"、"当日"子列）
-                    # 尝试匹配已知工作类型
-                    for wt in ["装移拆", "投诉", "LAN口", "巡检", "一户一案", "质差弱光", "小计"]:
-                        if wt in cell_str:
-                            # 检查下一个单元格或当前单元格是否包含"积压"或"当日"
-                            if "积压" in cell_str or (wt == cell_str and idx + 1 < len(header_row)):
-                                backlog_col_map[wt] = idx
-                            elif "当日" in cell_str:
-                                today_col_map[wt] = idx
-                            # 如果当前单元格只是工作类型名，积压通常在它所在列或下一列
-                            elif cell_str == wt and idx not in backlog_col_map.values() and idx not in today_col_map.values():
-                                # 默认先认为是积压列
-                                if wt not in backlog_col_map:
-                                    backlog_col_map[wt] = idx
+                    if cell_str == "县区":
+                        area_col = idx
+                    elif cell_str == "姓名":
+                        name_col = idx
+                    elif "累计积压量" in cell_str or "积压量" in cell_str:
+                        backlog_group_start = idx
+                    elif "当日工作量" in cell_str or "当日工作" in cell_str:
+                        today_group_start = idx
 
-                # 如果没找到明确的积压/当日映射，尝试通过列位置推断
-                # 常见格式：姓名 | 区域 | 装移拆积压 | 装移拆当日 | 投诉积压 | 投诉当日 | ...
-                if not backlog_col_map and not today_col_map:
-                    for idx, cell in enumerate(header_row):
+                # 如果没找到姓名或区域，尝试从Row2找
+                if name_col is None or area_col is None:
+                    for idx, cell in enumerate(row2):
                         if cell is None:
                             continue
                         cell_str = str(cell).strip()
-                        for wt in ["装移拆", "投诉", "LAN口", "巡检", "一户一案", "质差弱光", "小计"]:
-                            if wt == cell_str:
-                                # 假设奇数列为积压，偶数列为当日（从工作类型开始）
-                                if wt not in backlog_col_map:
-                                    backlog_col_map[wt] = idx
-                                elif wt not in today_col_map:
-                                    today_col_map[wt] = idx
+                        if name_col is None and cell_str == "姓名":
+                            name_col = idx
+                        if area_col is None and cell_str == "县区":
+                            area_col = idx
 
-                # 如果还是没找到，采用更宽松的策略：直接找数值列
-                if not col_map.get("姓名") and len(header_row) > 0:
-                    # 假设第一列是姓名
-                    for idx, cell in enumerate(header_row):
-                        if cell and str(cell).strip() == "姓名":
-                            col_map["姓名"] = idx
-                            break
+                # 第二遍：从Row2找到各工作类型的积压/当日列
+                # 注意：排除"小计"和"请假"，它们不是真实工作类型
+                # 积压工作类型映射（Row2中的名称 -> 简化名称）
+                wt_name_map = {
+                    "装移拆": "装移拆", "投诉": "投诉", "LAN口": "LAN口",
+                    "LAN口（到个人）": "LAN口",
+                    "巡检": "巡检", "一户一案": "一户一案", "质差弱光": "质差弱光",
+                }
+                # 当日工作类型映射
+                today_name_map = {
+                    "装移拆": "装移拆", "投诉归档": "投诉", "投诉": "投诉",
+                    "LAN口": "LAN口",
+                    "巡检（当日）": "巡检", "巡检": "巡检",
+                    "一户一案": "一户一案", "质差弱光": "质差弱光",
+                }
+                excluded_work_types = {"小计", "请假"}
 
-                # 流式遍历数据行
-                for row in row_iter:
+                for idx, cell in enumerate(row2):
+                    if cell is None:
+                        continue
+                    cell_str = str(cell).strip()
+                    # 跳过排除的工作类型列
+                    if cell_str in excluded_work_types:
+                        continue
+
+                    # 判断属于积压组还是当日组
+                    if backlog_group_start is not None and idx >= backlog_group_start:
+                        if today_group_start is not None and idx >= today_group_start:
+                            # 在当日组
+                            wt_simple = today_name_map.get(cell_str, cell_str)
+                            for orig, simple in today_name_map.items():
+                                if orig in cell_str:
+                                    wt_simple = simple
+                                    break
+                            if wt_simple not in excluded_work_types and wt_simple not in wt_col_map:
+                                wt_col_map[wt_simple] = {"backlog": None, "today": None}
+                            if wt_simple not in excluded_work_types:
+                                wt_col_map[wt_simple]["today"] = idx
+                        else:
+                            # 在积压组（当日组还没开始）
+                            for orig, simple in wt_name_map.items():
+                                if orig in cell_str:
+                                    if simple not in excluded_work_types and simple not in wt_col_map:
+                                        wt_col_map[simple] = {"backlog": None, "today": None}
+                                    if simple not in excluded_work_types:
+                                        wt_col_map[simple]["backlog"] = idx
+                                    break
+
+                # 流式遍历数据行（从Row3开始）
+                for row in rows_data2[3:]:
                     if not row:
                         continue
 
-                    name_idx = col_map.get("姓名")
-                    if name_idx is None or name_idx >= len(row) or not row[name_idx]:
-                        continue
-
-                    worker_name = str(row[name_idx]).strip()
-                    if not worker_name or worker_name == "nan":
-                        continue
-
-                    area_idx = col_map.get("区域")
+                    # 提取区域，过滤横山
                     area = ""
-                    if area_idx is not None and area_idx < len(row) and row[area_idx]:
-                        area = str(row[area_idx]).strip()
+                    if area_col is not None and area_col < len(row) and row[area_col]:
+                        area = str(row[area_col]).strip()
+
+                    # 只保留横山人员
+                    if "横山" not in area:
+                        continue
+
+                    # 提取姓名
+                    name_idx = name_col if name_col is not None else 1
+                    if name_idx >= len(row) or not row[name_idx]:
+                        continue
+                    worker_name = str(row[name_idx]).strip()
+                    if not worker_name or worker_name in ("nan", "#N/A"):
+                        continue
 
                     # 提取各工作类型的积压和当日数据
                     workload: dict[str, dict[str, int]] = {}
                     total_backlog = 0
                     total_today = 0
 
-                    for wt in backlog_col_map:
-                        backlog_idx = backlog_col_map[wt]
-                        today_idx = today_col_map.get(wt)
+                    for wt, cols in wt_col_map.items():
+                        backlog_idx = cols.get("backlog")
+                        today_idx = cols.get("today")
 
                         backlog_val = 0
                         today_val = 0
 
-                        if backlog_idx < len(row) and row[backlog_idx] is not None:
+                        if backlog_idx is not None and backlog_idx < len(row) and row[backlog_idx] is not None:
                             try:
-                                backlog_val = int(float(str(row[backlog_idx]).strip()))
+                                v = str(row[backlog_idx]).strip()
+                                if v and v not in ("#N/A", "nan"):
+                                    backlog_val = int(float(v))
                             except (ValueError, TypeError):
-                                backlog_val = 0
+                                pass
 
                         if today_idx is not None and today_idx < len(row) and row[today_idx] is not None:
                             try:
-                                today_val = int(float(str(row[today_idx]).strip()))
+                                v = str(row[today_idx]).strip()
+                                if v and v not in ("#N/A", "nan"):
+                                    today_val = int(float(v))
                             except (ValueError, TypeError):
-                                today_val = 0
+                                pass
 
                         workload[wt] = {"backlog": backlog_val, "today": today_val}
                         total_backlog += backlog_val
@@ -2529,7 +2583,7 @@ def _parse_city_workload_files(directory: str) -> dict:
 
                 logger.info(f"全市装维工作量统计横山到个人: {filename} -> {len(workers)} 人")
             else:
-                logger.warning(f"全市装维工作量统计: {filename} '到个人'sheet无表头")
+                logger.warning(f"全市装维工作量统计: {filename} '到个人'sheet数据行不足")
         else:
             logger.warning(f"全市装维工作量统计: {filename} 缺少'到个人'sheet")
 
