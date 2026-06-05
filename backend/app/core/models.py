@@ -137,6 +137,7 @@ class DailyReportBacklog(Base):
     id = Column(BigInteger, primary_key=True)
     report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=False, index=True)
     district = Column(String(50), comment="所属区县")
+    coverage_scenario = Column(String(50), comment="覆盖场景")
     account = Column(String(50), comment="宽带账号")
     service = Column(String(200), comment="服务")
     address = Column(Text, comment="施工地址")

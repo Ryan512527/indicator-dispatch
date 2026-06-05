@@ -142,6 +142,7 @@ export interface DailyReportSummary {
 export interface DailyReportBacklogRecord {
   id: number;
   所属区县: string;
+  覆盖场景: string;
   宽带账号: string;
   服务: string;
   施工地址: string;

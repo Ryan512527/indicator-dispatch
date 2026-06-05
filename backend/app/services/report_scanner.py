@@ -1697,6 +1697,7 @@ FIVE_CAT_FIELDS = [
 # 宽带积压保留字段
 BACKLOG_FIELDS = [
     "所属区县",
+    "覆盖场景",
     "宽带账号",
     "服务",
     "施工地址",
@@ -1930,7 +1931,7 @@ def _parse_backlog_sheet(ws, filename: str, source_label: str = "宽带积压") 
                     break
 
     # 验证关键字段
-    missing = [f for f in ["所属区县", "宽带账号"] if f not in col_map]
+    missing = [f for f in ["所属区县", "覆盖场景", "宽带账号"] if f not in col_map]
     if missing:
         logger.warning(f"日报{source_label} sheet 缺少关键字段: {missing}")
         return []
@@ -1950,7 +1951,7 @@ def _parse_backlog_sheet(ws, filename: str, source_label: str = "宽带积压") 
 
     max_col_idx = max(col_map.values())
 
-    # 流式遍历数据行，过滤横山
+    # 流式遍历数据行，过滤横山 + 家庭场景
     backlog_records: list[dict] = []
     for row in row_iter:
         if not row or len(row) <= max_col_idx:
@@ -1962,6 +1963,14 @@ def _parse_backlog_sheet(ws, filename: str, source_label: str = "宽带积压") 
             district_val = str(row[col_map["所属区县"]]).strip()
 
         if district_val != "横山" and district_val != "横山县":
+            continue
+
+        # 过滤家庭场景
+        scene_val = ""
+        if "覆盖场景" in col_map and row[col_map["覆盖场景"]]:
+            scene_val = str(row[col_map["覆盖场景"]]).strip()
+
+        if scene_val != "家庭场景":
             continue
 
         # 提取字段
@@ -2010,6 +2019,7 @@ def _parse_backlog_sheet(ws, filename: str, source_label: str = "宽带积压") 
 
         record = {
             "所属区县": _get("所属区县"),
+            "覆盖场景": _get("覆盖场景"),
             "宽带账号": _get("宽带账号"),
             "服务": _get("服务"),
             "施工地址": _get("施工地址"),
@@ -2107,6 +2117,7 @@ async def reparse_daily_report(db: AsyncSession, directory: Optional[str] = None
         drb = DailyReportBacklog(
             report_file_id=report_file.id,
             district=rec.get("所属区县", ""),
+            coverage_scenario=rec.get("覆盖场景", ""),
             account=rec.get("宽带账号", ""),
             service=rec.get("服务", ""),
             address=rec.get("施工地址", ""),
@@ -2212,6 +2223,7 @@ async def get_daily_report_backlog(
         records.append({
             "id": row.id,
             "所属区县": row.district,
+            "覆盖场景": row.coverage_scenario,
             "宽带账号": row.account,
             "服务": row.service,
             "施工地址": row.address,

@@ -120,6 +120,17 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
           }}>
             横山
           </span>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 10px',
+            borderRadius: 10,
+            background: '#f0fdf4',
+            color: '#16a34a',
+            fontSize: 12,
+            fontWeight: 600,
+          }}>
+            家庭场景
+          </span>
         </div>
         <span style={{ fontSize: 13, color: '#999', display: 'flex', gap: 16, alignItems: 'center' }}>
           <span>共 {total} 条</span>
@@ -252,7 +263,7 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
               <thead>
                 <tr style={{ background: '#fafafa', borderBottom: '2px solid #e5e7eb' }}>
                   {[
-                    '所属区县', '宽带账号', '服务', '施工地址', '施工人姓名',
+                    '所属区县', '宽带账号', '施工地址', '施工人姓名',
                     '工单状态', '受理时间', '到装维时间', '完成时限',
                     '装机历时(h)', '时长提醒', '用户品牌', '数据来源',
                   ].map(col => (
@@ -289,7 +300,6 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
                     >
                       <td style={{ padding: '8px', whiteSpace: 'nowrap', color: '#6b7280', fontSize: 12 }}>{row['所属区县'] || '—'}</td>
                       <td style={{ padding: '8px', whiteSpace: 'nowrap', color: '#111827', fontWeight: 500, fontSize: 12 }}>{row['宽带账号'] || '—'}</td>
-                      <td style={{ padding: '8px', whiteSpace: 'nowrap', color: '#374151', fontSize: 12 }}>{row['服务'] || '—'}</td>
                       <td style={{ padding: '8px', color: '#374151', fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }} title={row['施工地址']}>
                         {row['施工地址'] || '—'}
                       </td>
