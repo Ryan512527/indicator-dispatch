@@ -479,3 +479,36 @@ async def city_workload_reparse(
     from app.services.report_scanner import reparse_city_workload
     result = await reparse_city_workload(db, directory)
     return {"report_type": "全市装维工作量统计", **result}
+
+
+# ── 五类工单退撤单情况横山专用 API ──
+
+@router.get("/reports/five-category-withdrawal/summary")
+async def five_category_withdrawal_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取五类工单退撤单情况横山卡片指标（日粒度/月粒度退撤总量和重装量）"""
+    from app.services.report_scanner import get_five_category_withdrawal_summary
+    return await get_five_category_withdrawal_summary(db)
+
+
+@router.get("/reports/five-category-withdrawal/detail")
+async def five_category_withdrawal_detail(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """分页获取五类工单退撤单情况横山退撤单明细（15个字段）"""
+    from app.services.report_scanner import get_five_category_withdrawal_details
+    return await get_five_category_withdrawal_details(db, page, page_size)
+
+
+@router.post("/reports/five-category-withdrawal/reparse")
+async def five_category_withdrawal_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析五类工单退撤单情况文件，提取横山汇总指标和退撤单明细"""
+    from app.services.report_scanner import reparse_five_category_withdrawal
+    result = await reparse_five_category_withdrawal(db, directory)
+    return {"report_type": "五类工单撤撤单情况", **result}

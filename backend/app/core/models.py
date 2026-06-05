@@ -183,3 +183,54 @@ class CityWorkloadWorker(Base):
     total_backlog = Column(Integer, default=0, comment="累计积压总量")
     total_today = Column(Integer, default=0, comment="当日工作量总计")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+# ── 五类工单退撤单情况专用模型 ──
+
+class FiveCategoryWithdrawalSummary(Base):
+    """五类工单退撤单情况 - 横山汇总指标（来自"通报1"sheet）
+    包含日粒度和月粒度的"宽带（含FTTR)"退撤总量和退撤单重装量
+    """
+    __tablename__ = "five_category_withdrawal_summary"
+
+    id = Column(BigInteger, primary_key=True)
+    report_date = Column(String(50), comment="通报日期，如 2026-06-04")
+    district = Column(String(50), default="横山", comment="区县")
+
+    # 日粒度指标
+    day_withdrawal_total = Column(String(50), comment="日粒度-宽带（含FTTR)退撤总量")
+    day_reinstall_total = Column(String(50), comment="日粒度-宽带（含FTTR)退撤单重装量")
+
+    # 月粒度指标
+    month_withdrawal_total = Column(String(50), comment="月粒度-宽带（含FTTR)退撤总量")
+    month_reinstall_total = Column(String(50), comment="月粒度-宽带（含FTTR)退撤单重装量")
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class FiveCategoryWithdrawalDetail(Base):
+    """五类工单退撤单情况 - 横山退撤单明细（来自"装机退撤"sheet）
+    筛选条件：所属区县=横山，场景=家庭场景，剔重1=正常，是否回捞
+    """
+    __tablename__ = "five_category_withdrawal_detail"
+
+    id = Column(BigInteger, primary_key=True)
+    report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=False, index=True)
+
+    district = Column(String(50), comment="所属区县")
+    account = Column(String(50), comment="宽带账号")
+    global_access = Column(String(50), comment="全球通标识")
+    service_type = Column(String(100), comment="服务类型")
+    construction_address = Column(Text, comment="施工地址")
+    accept_department = Column(String(100), comment="受理部门")
+    accept_time = Column(String(50), comment="受理时间")
+    to_install_time = Column(String(50), comment="到装维时间")
+    deadline = Column(String(50), comment="完成时限")
+    natural_duration = Column(String(50), comment="处理时长（自然时）")
+    return_time = Column(String(50), comment="回单时间")
+    archive_time = Column(String(50), comment="归档时间")
+    suspected_timeout = Column(String(20), comment="疑似超时退单：是/否/未知")
+    return_note = Column(Text, comment="回单备注信息")
+    specific_reason = Column(Text, comment="具体原因")
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

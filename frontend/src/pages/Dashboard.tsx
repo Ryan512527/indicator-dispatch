@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -1068,6 +1068,146 @@ function CityWorkloadCard({ color, onNavigate }: { color: string; onNavigate: (p
   )
 }
 
+// ── 五类工单退撤单情况专用卡片 ──
+function FiveCategoryWithdrawalCard({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<FiveCategoryWithdrawalSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getFiveCategoryWithdrawalSummary()
+      .then(data => setSummary(data as FiveCategoryWithdrawalSummary))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '16px 20px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        display: 'flex', flexDirection: 'column',
+        minHeight: 250,
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', marginBottom: 10 }}>五类工单退撤单情况</div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 12 }}>
+          加载中...
+        </div>
+      </div>
+    )
+  }
+
+  const reportDate = summary?.report_date || ''
+
+  return (
+    <div
+      onClick={() => onNavigate({ name: 'five-category-withdrawal-detail' })}
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        cursor: 'pointer',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        transition: 'transform 0.15s, box-shadow 0.15s',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'
+      }}
+    >
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>五类工单退撤单情况</div>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 10,
+            background: '#eff6ff',
+            color: '#3b82f6',
+            fontSize: 11,
+            fontWeight: 600,
+          }}>
+            横山
+          </span>
+        </div>
+        <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
+          {reportDate || '—'}
+        </span>
+      </div>
+
+      {/* 日粒度指标 */}
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 6, borderBottom: '1px solid #f0f0f0', paddingBottom: 4 }}>
+          📅 日粒度（宽带含FTTR）
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
+          {[
+            { label: '退撤总量', value: summary?.day_withdrawal_total || '—', key: 'day_withdrawal' },
+            { label: '退撤单重装量', value: summary?.day_reinstall_total || '—', key: 'day_reinstall' },
+          ].map(item => (
+            <div key={item.key} style={{
+              textAlign: 'center',
+              background: '#f0fdf4',
+              borderRadius: 6,
+              padding: '8px 4px',
+            }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#166534', lineHeight: 1.2 }}>
+                {item.value}
+              </div>
+              <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+                {item.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 月粒度指标 */}
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 6, borderBottom: '1px solid #f0f0f0', paddingBottom: 4 }}>
+          📊 月粒度（宽带含FTTR）
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
+          {[
+            { label: '退撤总量', value: summary?.month_withdrawal_total || '—', key: 'month_withdrawal' },
+            { label: '退撤单重装量', value: summary?.month_reinstall_total || '—', key: 'month_reinstall' },
+          ].map(item => (
+            <div key={item.key} style={{
+              textAlign: 'center',
+              background: '#eff6ff',
+              borderRadius: 6,
+              padding: '8px 4px',
+            }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: '#1e40af', lineHeight: 1.2 }}>
+                {item.value}
+              </div>
+              <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+                {item.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 底部 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>📄 {reportDate ? `通报 ${reportDate}` : '—'}</span>
+          <span style={{ color: '#3b82f6' }}>点击查看退撤单明细 →</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 分类报表看板 ──
 function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [reportTypes, setReportTypes] = useState<ReportType[]>([])
@@ -1156,6 +1296,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 // 全市装维工作量统计用专用卡片
                 if (rt.name === '全市装维工作量统计') {
                   return <CityWorkloadCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
+                // 五类工单退撤单情况用专用卡片
+                if (rt.name === '五类工单退撤单情况') {
+                  return <FiveCategoryWithdrawalCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
                 return <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
               })}

@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -201,6 +201,27 @@ export const api = {
 
   reparseCityWorkload: async () => {
     const res = await fetch(`${BASE}/reports/city-workload/reparse`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
+    return res.json();
+  },
+
+  // ── 五类工单退撤单情况横山专用 APIs ──
+  getFiveCategoryWithdrawalSummary: () =>
+    fetchJson<FiveCategoryWithdrawalSummary>('/reports/five-category-withdrawal/summary'),
+
+  getFiveCategoryWithdrawalDetails: (page = 1, pageSize = 50) =>
+    fetchJson<{
+      records: FiveCategoryWithdrawalDetailRecord[];
+      total: number;
+      page: number;
+      page_size: number;
+    }>('/reports/five-category-withdrawal/detail', {
+      page: String(page),
+      page_size: String(pageSize),
+    }),
+
+  reparseFiveCategoryWithdrawal: async () => {
+    const res = await fetch(`${BASE}/reports/five-category-withdrawal/reparse`, { method: 'POST' });
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
     return res.json();
   },

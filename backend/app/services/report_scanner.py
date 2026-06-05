@@ -2760,3 +2760,542 @@ async def get_city_workload_workers(db: AsyncSession) -> dict:
         "workers": workers,
         "total": total,
     }
+
+
+# ── 五类工单退撤单情况专用处理 ──
+
+def _parse_five_category_withdrawal_files(directory: str) -> dict:
+    """
+    解析最新的"五类工单退撤单情况"文件：
+    1. 从"通报1"sheet 提取横山日粒度和月粒度退撤指标
+    2. 从"装机退撤"sheet 提取横山退撤单明细（筛选条件）
+    返回 {
+        "summary": dict | None,
+        "details": [dict],
+        "filename": str,
+        "report_date": str,
+    }
+    """
+    from datetime import datetime as _dt
+
+    # 找到最新的五类工单退撤单情况文件
+    matching: list[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("~$") or f.startswith("."):
+                continue
+            if "五类工单退撤单情况" in f and f.lower().endswith((".xlsx", ".xls")):
+                matching.append(os.path.join(root, f))
+
+    if not matching:
+        return {"summary": None, "details": [], "filename": None, "report_date": None}
+
+    # 按修改时间排序，取最新
+    matching.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+    latest_file = matching[0]
+    filename = os.path.basename(latest_file)
+
+    try:
+        wb = openpyxl.load_workbook(latest_file, read_only=True, data_only=True)
+
+        summary = None
+        report_date = None
+
+        # ── 1. 解析"通报1"sheet（汇总指标）──
+        if "通报1" in wb.sheetnames:
+            ws = wb["通报1"]
+            rows_data = list(ws.iter_rows(values_only=True))
+            if rows_data:
+                # 尝试从标题行提取日期
+                for r in rows_data[:5]:
+                    if r and r[0]:
+                        title = str(r[0])
+                        date_match = re.search(r'(\d{4})[年\-/](\d{1,2})[月\-/](\d{1,2})', title)
+                        if date_match:
+                            report_date = f"{date_match.group(1)}-{date_match.group(2).zfill(2)}-{date_match.group(3).zfill(2)}"
+                            break
+                        date_match2 = re.search(r'(\d{1,2})[月\-/](\d{1,2})', title)
+                        if date_match2:
+                            now = _dt.now()
+                            report_date = f"{now.year}-{date_match2.group(1).zfill(2)}-{date_match2.group(2).zfill(2)}"
+                            break
+
+                # 查找表头行（包含"退撤"或"宽带"的行）
+                header_row_idx = None
+                target_col_indices = {}  # {field_name: col_index}
+                broadband_row_idx = None
+                day_cols = {}  # 日粒度列索引
+                month_cols = {}  # 月粒度列索引
+
+                for ridx, row in enumerate(rows_data):
+                    if not row:
+                        continue
+                    row_str = " ".join([str(c) if c else "" for c in row])
+                    # 查找表头行
+                    if "退撤" in row_str or "重装" in row_str or "宽带" in row_str:
+                        # 检查是否包含退撤单/重装量相关字段
+                        for cidx, cell in enumerate(row):
+                            if cell is None:
+                                continue
+                            cell_str = str(cell).strip()
+                            # 处理换行符：将换行符替换为空，或分别匹配
+                            cell_normalized = cell_str.replace("\n", "").replace("\r", "")
+                            # 匹配退撤总量
+                            if "退撤" in cell_normalized and ("总量" in cell_normalized or "总计" in cell_normalized):
+                                target_col_indices.setdefault("withdrawal_total", []).append(cidx)
+                            # 匹配退撤单重装量（处理换行问题）
+                            if "退撤单" in cell_str or "退撤" in cell_normalized and "重装" in cell_normalized:
+                                # 检查同一行或下一行是否有"重装量"
+                                target_col_indices.setdefault("reinstall_total", []).append(cidx)
+                            if "重装" in cell_normalized:
+                                target_col_indices.setdefault("reinstall_total", []).append(cidx)
+
+                        # 如果找到了足够的列，记录表头行索引
+                        if len(target_col_indices) >= 2:
+                            header_row_idx = ridx
+                            break
+
+                # 查找"宽带（含FTTR)"所在行，并提取日粒度和月粒度数据
+                if header_row_idx is not None:
+                    # 重新扫描，更鲁棒地查找列
+                    all_headers = []
+                    # 支持多行表头：合并多行
+                    for ridx in range(max(0, header_row_idx - 2), min(len(rows_data), header_row_idx + 3)):
+                        row = rows_data[ridx]
+                        if not row:
+                            continue
+                        for cidx, cell in enumerate(row):
+                            if cell is not None:
+                                cell_str = str(cell).strip()
+                                if cell_str:
+                                    # 扩展到所有行
+                                    while len(all_headers) <= cidx:
+                                        all_headers.append("")
+                                    if all_headers[cidx]:
+                                        all_headers[cidx] += " " + cell_str
+                                    else:
+                                        all_headers[cidx] = cell_str
+
+                    # 查找关键列
+                    withdrawal_total_col = -1
+                    reinstall_total_col = -1
+                    day_marker_col = -1  # 日粒度标记列
+                    month_marker_col = -1  # 月粒度标记列
+
+                    for cidx, h in enumerate(all_headers):
+                        if h is None:
+                            continue
+                        h_norm = h.replace("\n", "").replace("\r", "")
+                        # 退撤总量
+                        if "退撤" in h_norm and ("总量" in h_norm or "总计" in h_norm):
+                            withdrawal_total_col = cidx
+                        # 退撤单重装量（可能跨单元格）
+                        if "退撤单" in h or ("退撤" in h_norm and "重装" in h_norm):
+                            reinstall_total_col = cidx
+                        if "重装" in h_norm and reinstall_total_col == -1:
+                            # 可能"退撤单"和"重装量"是分开的，这是一个 heuristics
+                            # 检查左边一列是否包含"退撤"
+                            if cidx > 0 and all_headers[cidx - 1] and "退撤" in all_headers[cidx - 1]:
+                                reinstall_total_col = cidx
+                            else:
+                                reinstall_total_col = cidx
+                        # 日粒度/月粒度标记
+                        if "日" in h_norm and "粒度" in h_norm or "当日" in h_norm:
+                            day_marker_col = cidx
+                        if "月" in h_norm and "粒度" in h_norm or "当月" in h_norm:
+                            month_marker_col = cidx
+
+                    # 如果没找到，用更宽松的匹配
+                    if withdrawal_total_col == -1:
+                        for cidx, h in enumerate(all_headers):
+                            if h and ("退撤" in h or "撤单" in h):
+                                withdrawal_total_col = cidx
+                                break
+
+                    if reinstall_total_col == -1:
+                        for cidx, h in enumerate(all_headers):
+                            if h and ("重装" in h or "重装量" in h):
+                                reinstall_total_col = cidx
+                                break
+
+                    # 查找"宽带（含FTTR)"行
+                    for ridx, row in enumerate(rows_data):
+                        if ridx <= header_row_idx:
+                            continue
+                        if not row:
+                            continue
+                        # 检查第一列或前几列是否包含"宽带（含FTTR)"
+                        found_broadband = False
+                        for cidx in range(min(3, len(row))):
+                            if row[cidx] and "宽带" in str(row[cidx]) and "FTTR" in str(row[cidx]):
+                                found_broadband = True
+                                broadband_row_idx = ridx
+                                break
+                        if found_broadband:
+                            break
+
+                    if broadband_row_idx is not None:
+                        br_row = rows_data[broadband_row_idx]
+                        # 提取日粒度数据（可能在"宽带（含FTTR)"行的某几列）
+                        # 尝试在同一行找到退撤总量和重装量的值
+                        day_withdrawal = ""
+                        day_reinstall = ""
+                        month_withdrawal = ""
+                        month_reinstall = ""
+
+                        # 策略：日粒度和月粒度数据可能在"宽带（含FTTR)"行的不同列
+                        # 或者在不同行
+                        # 这里做一个通用的方法：遍历所有数据行，找到包含"日"和"月"标记的行/列
+
+                        # 简化：如果withdrawal_total_col和reinstall_total_col找到了，
+                        # 从broadband_row_idx行取对应列的值
+                        if withdrawal_total_col >= 0 and withdrawal_total_col < len(br_row):
+                            val = br_row[withdrawal_total_col]
+                            if val is not None:
+                                day_withdrawal = str(val).strip()
+
+                        if reinstall_total_col >= 0 and reinstall_total_col < len(br_row):
+                            val = br_row[reinstall_total_col]
+                            if val is not None:
+                                day_reinstall = str(val).strip()
+
+                        # 月粒度：可能在下一行，或者在列的偏移位置
+                        # 查找"宽带（含FTTR)"下一行或包含"月"的同一行
+                        if broadband_row_idx + 1 < len(rows_data):
+                            next_row = rows_data[broadband_row_idx + 1]
+                            if next_row and next_row[0] and "月" in str(next_row[0]):
+                                if withdrawal_total_col >= 0 and withdrawal_total_col < len(next_row):
+                                    val = next_row[withdrawal_total_col]
+                                    if val is not None:
+                                        month_withdrawal = str(val).strip()
+                                if reinstall_total_col >= 0 and reinstall_total_col < len(next_row):
+                                    val = next_row[reinstall_total_col]
+                                    if val is not None:
+                                        month_reinstall = str(val).strip()
+
+                        summary = {
+                            "district": "横山",
+                            "day_withdrawal_total": day_withdrawal,
+                            "day_reinstall_total": day_reinstall,
+                            "month_withdrawal_total": month_withdrawal,
+                            "month_reinstall_total": month_reinstall,
+                        }
+
+        # ── 2. 解析"装机退撤"sheet（明细数据）──
+        details = []
+        if "装机退撤" in wb.sheetnames:
+            ws2 = wb["装机退撤"]
+            row_iter = ws2.iter_rows(values_only=True)
+            try:
+                header_rows = []
+                # 读取最多3行作为表头（处理多行表头）
+                for _ in range(3):
+                    header_rows.append(next(row_iter))
+            except StopIteration:
+                header_rows = [r for r in header_rows if r]
+
+            if header_rows:
+                # 合并多行表头
+                max_cols = max(len(r) for r in header_rows)
+                merged_headers = []
+                for cidx in range(max_cols):
+                    parts = []
+                    for r in header_rows:
+                        if cidx < len(r) and r[cidx] is not None:
+                            cell_str = str(r[cidx]).strip()
+                            if cell_str:
+                                parts.append(cell_str.replace("\n", "").replace("\r", ""))
+                    merged_headers.append("".join(parts))
+
+                # 查找目标列的索引
+                col_map = {}
+                target_fields = [
+                    "所属区县", "场景", "剔重1", "是否回捞",
+                    "宽带账号", "全球通标识", "服务类型", "施工地址",
+                    "受理部门", "受理时间", "到装维时间", "完成时限",
+                    "处理时长", "回单时间", "归档时间",
+                    "回单备注", "具体原因",
+                ]
+                for target in target_fields:
+                    for cidx, h in enumerate(merged_headers):
+                        if target in h:
+                            col_map[target] = cidx
+                            break
+
+                # 流式遍历数据行
+                for row in row_iter:
+                    if not row or len(row) <= max(col_map.values()) if col_map else True:
+                        continue
+
+                    # 获取筛选字段的值
+                    district_val = ""
+                    scene_val = ""
+                    tichong1_val = ""
+                    huilao_val = ""
+
+                    if "所属区县" in col_map and col_map["所属区县"] < len(row):
+                        district_val = str(row[col_map["所属区县"]]).strip() if row[col_map["所属区县"]] else ""
+
+                    if "场景" in col_map and col_map["场景"] < len(row):
+                        scene_val = str(row[col_map["场景"]]).strip() if row[col_map["场景"]] else ""
+
+                    if "剔重1" in col_map and col_map["剔重1"] < len(row):
+                        tichong1_val = str(row[col_map["剔重1"]]).strip() if row[col_map["剔重1"]] else ""
+
+                    if "是否回捞" in col_map and col_map["是否回捞"] < len(row):
+                        huilao_val = str(row[col_map["是否回捞"]]).strip() if row[col_map["是否回捞"]] else ""
+
+                    # 筛选条件：所属区县=横山，场景=家庭场景，剔重1=正常
+                    if district_val != "横山":
+                        continue
+                    if "家庭" not in scene_val and scene_val != "家庭场景":
+                        # 如果场景字段不包含"家庭"，也允许通过（字段可能为空或格式不同）
+                        if scene_val and "家庭" not in scene_val:
+                            continue
+                    if tichong1_val and tichong1_val != "正常":
+                        continue
+
+                    # 提取各字段
+                    def _get_val(field_name):
+                        if field_name in col_map and col_map[field_name] < len(row):
+                            v = row[col_map[field_name]]
+                            return str(v).strip() if v is not None else ""
+                        return ""
+
+                    accept_time_str = _get_val("受理时间")
+                    deadline_str = _get_val("完成时限")
+                    return_time_str = _get_val("回单时间")
+
+                    # 计算疑似超时退单
+                    suspected_timeout = "未知"
+                    if return_time_str and deadline_str:
+                        try:
+                            # 尝试解析回单时间和完成时限
+                            return_dt = None
+                            deadline_dt = None
+                            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d"):
+                                try:
+                                    if not return_dt:
+                                        return_dt = _dt.strptime(return_time_str[:19], fmt)
+                                except (ValueError, TypeError):
+                                    pass
+                                try:
+                                    if not deadline_dt:
+                                        deadline_dt = _dt.strptime(deadline_str[:19], fmt)
+                                except (ValueError, TypeError):
+                                    pass
+                            if return_dt and deadline_dt:
+                                diff = deadline_dt - return_dt
+                                hours = diff.total_seconds() / 3600.0
+                                suspected_timeout = "是" if hours < 12 else "否"
+                        except Exception:
+                            suspected_timeout = "未知"
+                    elif not return_time_str:
+                        suspected_timeout = "未知"
+
+                    record = {
+                        "district": district_val,
+                        "account": _get_val("宽带账号"),
+                        "global_access": _get_val("全球通标识"),
+                        "service_type": _get_val("服务类型"),
+                        "construction_address": _get_val("施工地址"),
+                        "accept_department": _get_val("受理部门"),
+                        "accept_time": accept_time_str,
+                        "to_install_time": _get_val("到装维时间"),
+                        "deadline": deadline_str,
+                        "natural_duration": _get_val("处理时长"),
+                        "return_time": return_time_str,
+                        "archive_time": _get_val("归档时间"),
+                        "suspected_timeout": suspected_timeout,
+                        "return_note": _get_val("回单备注"),
+                        "specific_reason": _get_val("具体原因"),
+                    }
+                    details.append(record)
+
+                logger.info(f"五类工单退撤单情况明细: {filename} -> {len(details)} 条")
+
+        wb.close()
+        return {
+            "summary": summary,
+            "details": details,
+            "filename": filename,
+            "report_date": report_date,
+        }
+
+    except Exception as e:
+        logger.error(f"解析五类工单退撤单情况失败 {filename}: {e}", exc_info=True)
+        return {"summary": None, "details": [], "filename": filename, "report_date": None}
+
+
+async def reparse_five_category_withdrawal(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """
+    重新解析五类工单退撤单情况文件，
+    提取横山汇总指标和退撤单明细，更新数据库。
+    """
+    if directory is None:
+        directory = settings.watch_dir
+
+    from app.core.models import FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetail
+    from sqlalchemy import delete as _delete
+
+    # 在线程池中解析
+    result = await asyncio.to_thread(_parse_five_category_withdrawal_files, directory)
+
+    # 删除旧数据
+    await db.execute(_delete(FiveCategoryWithdrawalSummary))
+    await db.execute(_delete(FiveCategoryWithdrawalDetail))
+
+    summary_count = 0
+    if result["summary"]:
+        s = result["summary"]
+        fcws = FiveCategoryWithdrawalSummary(
+            report_date=result["report_date"] or "",
+            district=s["district"],
+            day_withdrawal_total=s["day_withdrawal_total"],
+            day_reinstall_total=s["day_reinstall_total"],
+            month_withdrawal_total=s["month_withdrawal_total"],
+            month_reinstall_total=s["month_reinstall_total"],
+        )
+        db.add(fcws)
+        summary_count = 1
+
+    # 获取或创建"五类工单退撤单情况"报表类型
+    stmt = select(ReportType).where(ReportType.name == "五类工单退撤单情况")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        report_type = ReportType(name="五类工单退撤单情况", category="装维生产")
+        db.add(report_type)
+        await db.flush()
+
+    # 删除旧的 report_files/report_records
+    old_files_stmt = select(ReportFile.id).where(ReportFile.report_type_id == report_type.id)
+    r2 = await db.execute(old_files_stmt)
+    old_file_ids = [row[0] for row in r2.all()]
+    if old_file_ids:
+        await db.execute(_delete(ReportRecord).where(ReportRecord.report_file_id.in_(old_file_ids)))
+        await db.execute(_delete(ReportFile).where(ReportFile.report_type_id == report_type.id))
+
+    # 创建 ReportFile
+    report_file = ReportFile(
+        report_type_id=report_type.id,
+        filename=result["filename"] or "",
+        file_path=os.path.join(directory, result["filename"] or ""),
+        parse_status="parsed",
+        record_count=len(result["details"]),
+    )
+    db.add(report_file)
+    await db.flush()
+
+    # 写入明细数据
+    detail_count = 0
+    for rec in result["details"]:
+        fcd = FiveCategoryWithdrawalDetail(
+            report_file_id=report_file.id,
+            district=rec["district"],
+            account=rec["account"],
+            global_access=rec["global_access"],
+            service_type=rec["service_type"],
+            construction_address=rec["construction_address"],
+            accept_department=rec["accept_department"],
+            accept_time=rec["accept_time"],
+            to_install_time=rec["to_install_time"],
+            deadline=rec["deadline"],
+            natural_duration=rec["natural_duration"],
+            return_time=rec["return_time"],
+            archive_time=rec["archive_time"],
+            suspected_timeout=rec["suspected_timeout"],
+            return_note=rec["return_note"],
+            specific_reason=rec["specific_reason"],
+        )
+        db.add(fcd)
+        detail_count += 1
+
+    await db.commit()
+
+    return {
+        "summary_parsed": summary_count,
+        "detail_count": detail_count,
+        "filename": result["filename"],
+        "report_date": result["report_date"],
+    }
+
+
+async def get_five_category_withdrawal_summary(db: AsyncSession) -> dict:
+    """获取五类工单退撤单情况横山卡片指标"""
+    from app.core.models import FiveCategoryWithdrawalSummary
+
+    stmt = select(FiveCategoryWithdrawalSummary).order_by(FiveCategoryWithdrawalSummary.id.desc()).limit(1)
+    r = await db.execute(stmt)
+    row = r.scalar_one_or_none()
+
+    if not row:
+        return {
+            "district": "横山",
+            "day_withdrawal_total": "",
+            "day_reinstall_total": "",
+            "month_withdrawal_total": "",
+            "month_reinstall_total": "",
+            "report_date": "",
+        }
+
+    return {
+        "district": row.district,
+        "day_withdrawal_total": row.day_withdrawal_total,
+        "day_reinstall_total": row.day_reinstall_total,
+        "month_withdrawal_total": row.month_withdrawal_total,
+        "month_reinstall_total": row.month_reinstall_total,
+        "report_date": row.report_date,
+    }
+
+
+async def get_five_category_withdrawal_details(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
+    """分页获取五类工单退撤单情况横山退撤单明细"""
+    from app.core.models import FiveCategoryWithdrawalDetail
+    from sqlalchemy import func as _func
+
+    count_stmt = select(_func.count(FiveCategoryWithdrawalDetail.id))
+    r = await db.execute(count_stmt)
+    total = r.scalar() or 0
+
+    offset = (page - 1) * page_size
+    data_stmt = (
+        select(FiveCategoryWithdrawalDetail)
+        .order_by(FiveCategoryWithdrawalDetail.id.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    r2 = await db.execute(data_stmt)
+    rows = r2.scalars().all()
+
+    records = []
+    for row in rows:
+        records.append({
+            "id": row.id,
+            "district": row.district,
+            "account": row.account,
+            "global_access": row.global_access,
+            "service_type": row.service_type,
+            "construction_address": row.construction_address,
+            "accept_department": row.accept_department,
+            "accept_time": row.accept_time,
+            "to_install_time": row.to_install_time,
+            "deadline": row.deadline,
+            "natural_duration": row.natural_duration,
+            "return_time": row.return_time,
+            "archive_time": row.archive_time,
+            "suspected_timeout": row.suspected_timeout,
+            "return_note": row.return_note,
+            "specific_reason": row.specific_reason,
+        })
+
+    return {
+        "records": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
