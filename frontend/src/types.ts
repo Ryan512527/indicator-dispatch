@@ -282,3 +282,22 @@ export interface OfflineDispatchSummary {
   warn_4h_overdue: string;
   report_date: string;
 }
+
+export interface OfflineDispatchDetailRecord {
+  id: number;
+  district: string;
+  timeout_limit: string;
+  broadband_account: string;
+  is_vip_customer: string;
+  customer_contact: string;
+  construction_address: string;
+  handler_name: string;
+  category: string;
+}
+
+export interface OfflineDispatchDetailResponse {
+  records: OfflineDispatchDetailRecord[];
+  total: number;
+  page: number;
+  page_size: number;
+}

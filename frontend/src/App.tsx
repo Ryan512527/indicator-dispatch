@@ -11,6 +11,7 @@ import { EnterpriseBroadbandBacklog } from './pages/EnterpriseBroadbandBacklog'
 import { DailyReportDetail } from './pages/DailyReportDetail'
 import { CityWorkloadDetail } from './pages/CityWorkloadDetail'
 import { FiveCategoryWithdrawalDetail } from './pages/FiveCategoryWithdrawalDetail'
+import { OfflineDispatchDetail } from './pages/OfflineDispatchDetail'
 import type { Page } from './types'
 
 
@@ -30,6 +31,7 @@ export default function App() {
         page.name === 'daily-report-detail' ? '/daily-report-detail' :
         page.name === 'city-workload-detail' ? '/city-workload-detail' :
         page.name === 'five-category-withdrawal-detail' ? '/five-category-withdrawal' :
+        page.name === 'offline-dispatch-detail' ? '/offline-dispatch' :
         page.name === 'complaint-10086-detail' ? '/complaint-10086' :
         page.name === 'complaint-2200000-detail' ? '/complaint-2200000' :
         ''
@@ -54,6 +56,7 @@ export default function App() {
       {page.name === 'daily-report-detail' && <DailyReportDetail onBack={() => setPage({ name: 'dashboard' })} />}
       {page.name === 'city-workload-detail' && <CityWorkloadDetail onBack={() => setPage({ name: 'dashboard' })} />}
       {page.name === 'five-category-withdrawal-detail' && <FiveCategoryWithdrawalDetail onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'offline-dispatch-detail' && <OfflineDispatchDetail onBack={() => setPage({ name: 'dashboard' })} />}
       {page.name === 'complaint-10086-detail' && <Dashboard onNavigate={p => setPage(p)} initialPage="complaint-10086-detail" />}
       {page.name === 'complaint-2200000-detail' && <Dashboard onNavigate={p => setPage(p)} initialPage="complaint-2200000-detail" />}
     </Layout>

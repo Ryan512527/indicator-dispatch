@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailResponse } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -280,5 +280,12 @@ export const api = {
     const res = await fetch(`${BASE}/reports/offline-dispatch/reparse`, { method: 'POST' });
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
     return res.json();
+  },
+  getOfflineDispatchDetails: async (params?: { category?: string; page?: number; page_size?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.category) qs.set('category', params.category);
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.page_size) qs.set('page_size', String(params.page_size));
+    return fetchJson<OfflineDispatchDetailResponse>(`/reports/offline-dispatch/details?${qs.toString()}`);
   },
 };

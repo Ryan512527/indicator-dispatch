@@ -1963,6 +1963,7 @@ function OfflineDispatchCard({ onNavigate }: { color: string; onNavigate: (p: Pa
       }}
       onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)')}
       onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)')}
+      onClick={() => onNavigate({ name: 'offline-dispatch-detail' })}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e' }}>线下派单处理情况</span>

@@ -4451,6 +4451,7 @@ def _parse_offline_dispatch_files(directory: str) -> dict:
 
     latest_file = max(files, key=os.path.getmtime)
     filename = os.path.basename(latest_file)
+    details = []
 
     wb = openpyxl.load_workbook(latest_file, data_only=True)
 
@@ -4587,23 +4588,87 @@ def _parse_offline_dispatch_files(directory: str) -> dict:
         "warn_4h_overdue": warn_4h_overdue,
     }
 
-    logger.info(f"线下派单处理情况: 解析完成, report_date={report_date}, summary={summary}")
+    # ── 解析明细：累计在途需处理（自接）+ 往月积压 ──
+    def _build_col_map(ws_detail) -> dict:
+        """从首行构建 列名→索引(0-based) 映射"""
+        m = {}
+        for i, cell in enumerate(ws_detail[1]):
+            if cell.value:
+                m[str(cell.value).strip()] = i
+        return m
+
+    def _safe_str(row, idx):
+        if idx is None or idx >= len(row) or row[idx] is None:
+            return ""
+        return str(row[idx]).strip()
+
+    for _sheet_name, _category in [("累计在途需处理（自接）", "在途"), ("往月积压", "往月")]:
+        if _sheet_name not in wb.sheetnames:
+            logger.warning(f"线下派单: 缺少'{_sheet_name}'sheet")
+            continue
+        _ws = wb[_sheet_name]
+        _col_map = _build_col_map(_ws)
+        _rows = list(_ws.iter_rows(values_only=True))
+        if len(_rows) <= 1:
+            continue
+
+        _col_district = _col_map.get("所属区县")
+        _col_tichong  = _col_map.get("剔重")
+        _col_timeout   = _col_map.get("超时时限")
+        _col_account   = _col_map.get("宽带帐号")
+        _col_vip      = _col_map.get("是否重要客户")
+        _col_contact   = _col_map.get("客户联系方式")
+        _col_address   = _col_map.get("施工地址")
+        _col_handler   = _col_map.get("处理人姓名")
+
+        for _row in _rows[1:]:
+            _district = _safe_str(_row, _col_district)
+            if not _district or "横山" not in _district:
+                continue
+            # 剔重="正常" 过滤（列不存在时跳过该过滤）
+            if _col_tichong is not None:
+                if _safe_str(_row, _col_tichong) != "正常":
+                    continue
+            details.append({
+                "district":           _district,
+                "timeout_limit":       _safe_str(_row, _col_timeout),
+                "broadband_account":  _safe_str(_row, _col_account),
+                "is_vip_customer":    _safe_str(_row, _col_vip),
+                "customer_contact":    _safe_str(_row, _col_contact),
+                "construction_address": _safe_str(_row, _col_address),
+                "handler_name":        _safe_str(_row, _col_handler),
+                "category":            _category,
+            })
+
+    logger.info(f"线下派单处理情况: 解析完成, report_date={report_date}, summary={summary}, details={len(details)}条")
     wb.close()
-    return {"summary": summary, "report_date": report_date, "filename": filename}
+    return {"summary": summary, "details": details, "report_date": report_date, "filename": filename}
 
 
 async def reparse_offline_dispatch(db: AsyncSession, directory: Optional[str] = None) -> dict:
-    """重新解析线下派单处理情况文件，提取横山汇总指标，更新数据库。"""
+    """重新解析线下派单处理情况文件，提取横山汇总+明细数据，更新数据库。"""
     if directory is None:
         directory = settings.watch_dir
 
     result = await asyncio.to_thread(_parse_offline_dispatch_files, directory)
 
-    from app.core.models import OfflineDispatchSummary
-    from sqlalchemy import delete as _delete
+    from app.core.models import OfflineDispatchSummary, OfflineDispatchDetail
+    from sqlalchemy import delete as _delete, text as _text
+
+    # ── 迁移：如明细表缺少新列，删除并重建 ──
+    try:
+        await db.execute(_text("SELECT timeout_limit FROM offline_dispatch_detail LIMIT 1"))
+    except Exception:
+        logger.info("线下派单: 明细表缺少新列，正在重建...")
+        from app.core.database import engine as _async_engine
+        async with _async_engine.begin() as conn:
+            await conn.run_sync(lambda _: OfflineDispatchDetail.__table__.drop(_, checkfirst=True))
+            await conn.run_sync(lambda _: OfflineDispatchDetail.__table__.create(_))
+        await db.rollback()  # 重置事务状态
 
     # 删除旧数据
     await db.execute(_delete(OfflineDispatchSummary))
+    await db.execute(_delete(OfflineDispatchDetail))
 
     summary_count = 0
     if result["summary"]:
@@ -4620,10 +4685,28 @@ async def reparse_offline_dispatch(db: AsyncSession, directory: Optional[str] = 
         db.add(ods)
         summary_count = 1
 
+    # 保存明细
+    detail_count = 0
+    for d in result.get("details", []):
+        odd = OfflineDispatchDetail(
+            report_file_id=None,
+            district=d["district"],
+            timeout_limit=d["timeout_limit"],
+            broadband_account=d["broadband_account"],
+            is_vip_customer=d["is_vip_customer"],
+            customer_contact=d["customer_contact"],
+            construction_address=d["construction_address"],
+            handler_name=d["handler_name"],
+            category=d["category"],
+        )
+        db.add(odd)
+        detail_count += 1
+
     await db.commit()
 
     return {
         "summary_parsed": summary_count,
+        "detail_parsed": detail_count,
         "filename": result["filename"],
         "report_date": result["report_date"],
     }

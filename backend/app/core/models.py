@@ -368,10 +368,10 @@ class OfflineDispatchDetail(Base):
     __tablename__ = "offline_dispatch_detail"
 
     id = Column(BigInteger, primary_key=True)
-    report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=False, index=True)
+    report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=True, index=True)
     district = Column(String(50), comment="所属区县")
     order_no = Column(String(100), comment="工单号")
-    is_first_contact = Column(String(20), comment="是否首联")
+    timeout_limit = Column(String(50), comment="超时时限")
     broadband_account = Column(String(100), comment="宽带帐号")
     current_step = Column(String(100), comment="当前工单环节")
     accept_time = Column(String(50), comment="客服受理时间")
@@ -382,4 +382,6 @@ class OfflineDispatchDetail(Base):
     handler_phone = Column(String(50), comment="处理人电话")
     construction_address = Column(Text, comment="施工地址")
     category = Column(String(20), comment="分类:在途/往月")
+    is_vip_customer = Column(String(20), comment="是否重要客户")
+    customer_contact = Column(String(100), comment="客户联系方式")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

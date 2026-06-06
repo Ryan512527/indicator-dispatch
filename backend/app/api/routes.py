@@ -622,3 +622,51 @@ async def offline_dispatch_reparse(
     from app.services.report_scanner import reparse_offline_dispatch
     result = await reparse_offline_dispatch(db, directory)
     return {"report_type": "线下派单处理情况", **result}
+
+
+@router.get("/reports/offline-dispatch/details")
+async def offline_dispatch_details(
+    category: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """获取线下派单处理情况横山明细数据（支持按分类筛选）"""
+    from app.core.models import OfflineDispatchDetail
+    from sqlalchemy import select, func
+
+    stmt = select(OfflineDispatchDetail)
+    if category:
+        stmt = stmt.where(OfflineDispatchDetail.category == category)
+
+    count_stmt = select(func.count(OfflineDispatchDetail.id))
+    if category:
+        count_stmt = count_stmt.where(OfflineDispatchDetail.category == category)
+    r = await db.execute(count_stmt)
+    total = r.scalar() or 0
+
+    offset = (page - 1) * page_size
+    data_stmt = stmt.order_by(OfflineDispatchDetail.id.asc()).offset(offset).limit(page_size)
+    r2 = await db.execute(data_stmt)
+    rows = r2.scalars().all()
+
+    records = []
+    for row in rows:
+        records.append({
+            "id": row.id,
+            "district": row.district,
+            "timeout_limit": row.timeout_limit,
+            "broadband_account": row.broadband_account,
+            "is_vip_customer": row.is_vip_customer,
+            "customer_contact": row.customer_contact,
+            "construction_address": row.construction_address,
+            "handler_name": row.handler_name,
+            "category": row.category,
+        })
+
+    return {
+        "records": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
