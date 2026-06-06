@@ -1456,7 +1456,7 @@ def _parse_enterprise_broadband_files(directory: str) -> dict:
                 return {"summary": summary, "backlog": [], "filename": filename, "report_date": report_date}
 
             col_map: dict[str, int] = {}
-            target_fields = ["所属区县", "宽带账号", "施工地址", "施工人姓名",
+            target_fields = ["所属区县", "覆盖场景", "宽带账号", "施工地址", "施工人姓名",
                              "受理时间", "到装维时间", "完成时限", "用户品牌"]
             for target in target_fields:
                 for idx, cell in enumerate(header_row):
@@ -1480,6 +1480,11 @@ def _parse_enterprise_broadband_files(directory: str) -> dict:
                 district_val = str(row[col_map.get("所属区县")]).strip() if col_map.get("所属区县") is not None and row[col_map["所属区县"]] else ""
                 if district_val != "横山县":
                     continue
+                
+                # 新增：过滤覆盖场景=企宽场景
+                scene_val = str(row[col_map.get("覆盖场景")]).strip() if col_map.get("覆盖场景") is not None and row[col_map["覆盖场景"]] else ""
+                if scene_val != "企宽场景":
+                    continue
 
                 # 计算装机历时(h) = 完成时限 - 到装维时间
                 install_duration = ""
@@ -1498,6 +1503,7 @@ def _parse_enterprise_broadband_files(directory: str) -> dict:
 
                 record = {
                     "district": district_val,
+                    "cover_scene": scene_val,
                     "account": str(row[col_map["宽带账号"]]) if "宽带账号" in col_map and row[col_map["宽带账号"]] else "",
                     "address": str(row[col_map["施工地址"]]) if "施工地址" in col_map and row[col_map["施工地址"]] else "",
                     "worker_name": str(row[col_map["施工人姓名"]]) if "施工人姓名" in col_map and row[col_map["施工人姓名"]] else "",
@@ -1596,6 +1602,7 @@ async def reparse_enterprise_broadband(db: AsyncSession, directory: Optional[str
         ebb = EnterpriseBroadbandBacklog(
             report_file_id=report_file.id,
             district=rec["district"],
+            cover_scene=rec["cover_scene"],
             account=rec["account"],
             address=rec["address"],
             worker_name=rec["worker_name"],
@@ -1677,6 +1684,7 @@ async def get_enterprise_broadband_backlog(
         records.append({
             "id": row.id,
             "district": row.district,
+            "cover_scene": row.cover_scene,
             "account": row.account,
             "address": row.address,
             "worker_name": row.worker_name,
