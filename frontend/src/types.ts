@@ -113,6 +113,7 @@ export interface EnterpriseBroadbandSummary {
 export interface EnterpriseBroadbandBacklogRecord {
   id: number;
   district: string;
+  cover_scene: string;
   account: string;
   address: string;
   worker_name: string;
