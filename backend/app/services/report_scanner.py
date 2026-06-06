@@ -4777,15 +4777,15 @@ def _parse_retry_warning_files(directory: str) -> dict:
             rows_data = list(ws.iter_rows(values_only=True))
 
             if rows_data:
-                # 提取通报日期
-                if rows_data[0] and rows_data[0][0]:
-                    title = str(rows_data[0][0])
-                    m = _re.search(r'截止(\d+)日', title)
-                    if m:
-                        # 从文件名或标题推断月份
-                        month_m = _re.search(r'(\d{1,2})月', title)
-                        month = month_m.group(1).zfill(2) if month_m else "01"
-                        report_date = f"2026-{month}-{m.group(1).zfill(2)}"
+                # 提取通报日期：优先从标题/文件名匹配"截至/截止N月N日"
+                _date_source = filename + " " + (str(rows_data[0][0]) if rows_data[0] and rows_data[0][0] else "")
+                _m = _re.search(r'截至?(\d{1,2})月(\d{1,2})日', _date_source)
+                if _m:
+                    report_date = f"2026-{_m.group(1).zfill(2)}-{_m.group(2).zfill(2)}"
+                else:
+                    _m2 = _re.search(r'截至?(\d+)日', _date_source)
+                    if _m2:
+                        report_date = f"2026-??-{_m2.group(1).zfill(2)}"
 
                 # 横山区数据在 rows_data[8] (Excel row 9)
                 hengshan_row = None
