@@ -1401,21 +1401,42 @@ def _parse_enterprise_broadband_files(directory: str) -> dict:
                     now = _dt.now()
                     report_date = f"{now.year}-{date_match.group(1).zfill(2)}-{date_match.group(2).zfill(2)}"
 
-            # 查找横山行（数据从第4行开始，列: 0=县区, 1-10=指标值）
+            # 从 Row 2（实际表头行）动态构建列名→列索引映射
+            # 模板可能增删列（如"当月退单率""当日退单率"），硬编码索引会错位
+            header_row = rows_data[2] if len(rows_data) > 2 else ()
+            col_map: dict[str, int] = {}
+            target_fields = [
+                "当月受理量", "当月归档量", "当月成功率", "当月退单量",
+                "积压总量", "当日受理量", "当日归档量", "当日成功率",
+                "当日退单量", "当日积压",
+            ]
+            for target in target_fields:
+                for idx, cell in enumerate(header_row):
+                    if cell and str(cell).strip() == target:
+                        col_map[target] = idx
+                        break
+
+            # 查找横山行
             for row in rows_data[4:]:
                 if row[0] and str(row[0]).strip() == "横山县":
+                    def _safe_str(key: str) -> str:
+                        idx = col_map.get(key)
+                        if idx is not None and len(row) > idx and row[idx] is not None:
+                            return str(row[idx])
+                        return ""
+
                     summary = {
                         "district": "横山",
-                        "month_accept": str(row[1]) if row[1] is not None else "",
-                        "month_archive": str(row[2]) if row[2] is not None else "",
-                        "month_success_rate": str(row[3]) if row[3] is not None else "",
-                        "month_reject": str(row[4]) if row[4] is not None else "",
-                        "total_backlog": str(row[5]) if row[5] is not None else "",
-                        "day_accept": str(row[6]) if row[6] is not None else "",
-                        "day_archive": str(row[7]) if row[7] is not None else "",
-                        "day_success_rate": str(row[8]) if row[8] is not None else "",
-                        "day_reject": str(row[9]) if row[9] is not None else "",
-                        "day_backlog": str(row[10]) if row[10] is not None else "",
+                        "month_accept": _safe_str("当月受理量"),
+                        "month_archive": _safe_str("当月归档量"),
+                        "month_success_rate": _safe_str("当月成功率"),
+                        "month_reject": _safe_str("当月退单量"),
+                        "total_backlog": _safe_str("积压总量"),
+                        "day_accept": _safe_str("当日受理量"),
+                        "day_archive": _safe_str("当日归档量"),
+                        "day_success_rate": _safe_str("当日成功率"),
+                        "day_reject": _safe_str("当日退单量"),
+                        "day_backlog": _safe_str("当日积压"),
                     }
                     break
 
