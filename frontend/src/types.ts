@@ -110,6 +110,7 @@ export interface EnterpriseBroadbandSummary {
   day_reject: string;
   day_backlog: string;
   report_date: string;
+  latest_filename: string;
 }
 
 export interface EnterpriseBroadbandBacklogRecord {
@@ -128,6 +129,7 @@ export interface EnterpriseBroadbandBacklogRecord {
 
 export interface DailyReportSummary {
   report_date: string;
+  latest_filename: string;
   two_cat: {
     积压总量: string;
     家宽转化率: string;
@@ -170,6 +172,7 @@ export interface CityWorkloadSummary {
   leave_staff: string;
   no_work_ratio: string;
   report_date: string;
+  latest_filename: string;
 }
 
 export interface CityWorkloadWorker {
@@ -189,6 +192,7 @@ export interface FiveCategoryWithdrawalSummary {
   month_withdrawal_total: string;
   month_reinstall_total: string;
   report_date: string;
+  latest_filename: string;
 }
 
 export interface FiveCategoryWithdrawalDetailRecord {
@@ -220,6 +224,7 @@ export interface ComplaintBacklogSummary {
   previous_day_backlog: string;
   ratio: string;
   report_date: string;
+  latest_filename: string;
 }
 
 export interface Complaint10086Summary {
@@ -232,6 +237,7 @@ export interface Complaint10086Summary {
   warn_2h_overdue: string;
   overdue_2_4h: string;
   report_date: string;
+  latest_filename: string;
 }
 
 export interface Complaint10086DetailRecord {
@@ -259,6 +265,7 @@ export interface Complaint2200000Summary {
   warn_4h_overdue: string;
   escalate_complaint: string;
   report_date: string;
+  latest_filename: string;
 }
 
 export interface Complaint2200000DetailRecord {
@@ -281,6 +288,7 @@ export interface OfflineDispatchSummary {
   total_in_transit: string;
   warn_4h_overdue: string;
   report_date: string;
+  latest_filename: string;
 }
 
 export interface OfflineDispatchDetailRecord {
@@ -313,6 +321,7 @@ export interface RetryWarningSummary {
   repair_in_transit: string;
   repair_closed: string;
   report_date: string;
+  latest_filename: string;
 }
 
 export interface RetryWarningDetailRecord {

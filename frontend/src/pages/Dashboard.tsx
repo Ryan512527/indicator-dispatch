@@ -24,12 +24,12 @@ const CATEGORIES: CategoryConfig[] = [
   {
     name: '第二类：装维生产类',
     color: '#3b82f6',
-    keywords: ['企宽装机通报', '日报', '成功率攻坚通报', '全市装维工作量统计', '家宽+FTTR遗留工单安装进度通报', 'H5当日闭环测评清单', '企宽开通及时率通报', '五类工单退撤单情况', '触点用后即评'],
+    keywords: ['企宽装机通报', '日报', '五类工单退撤单情况', '全市装维工作量统计', '家宽+FTTR遗留工单安装进度通报', 'H5当日闭环测评清单', '企宽开通及时率通报', '成功率攻坚通报', '触点用后即评'],
   },
   {
     name: '第三类：投诉类',
     color: '#f59e0b',
-    keywords: ['宽带在途投诉清单', '家宽重投2次清单明细', '10086投诉积压(督办)', '重投预警工单梳理', '2200000及时率通报', '线下派单处理情况', '投诉积压大于3单人员通报', '投诉三类工单在途情况'],
+    keywords: ['宽带在途投诉清单', '线下派单处理情况', '10086投诉积压(督办)', '重投预警工单梳理', '2200000及时率通报', '家宽重投2次清单明细', '投诉积压大于3单人员通报', '投诉三类工单在途情况'],
   },
   {
     name: '第四类：质差整治类',
@@ -685,6 +685,7 @@ function EnterpriseBroadbandCard({ color, onNavigate }: { color: string; onNavig
   }
 
   const reportDate = summary?.report_date || ''
+  const latestFilename = (summary as any)?.latest_filename || ''
   const fmtPercent = (v: string) => {
     const n = parseFloat(v)
     if (isNaN(n)) return v
@@ -798,7 +799,9 @@ function EnterpriseBroadbandCard({ color, onNavigate }: { color: string; onNavig
       {/* 底部 */}
       <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>📄 {reportDate ? `通报 ${reportDate}` : '—'}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename}>
+            📄 {latestFilename || (reportDate ? `通报 ${reportDate}` : '—')}
+          </span>
           <span style={{ color: '#3b82f6' }}>点击查看积压清单 →</span>
         </div>
       </div>
@@ -842,6 +845,7 @@ function DailyReportCard({ color, onNavigate }: { color: string; onNavigate: (p:
   }
 
   const reportDate = summary?.report_date || ''
+  const latestFilename = (summary as any)?.latest_filename || ''
 
   return (
     <div
@@ -950,7 +954,9 @@ function DailyReportCard({ color, onNavigate }: { color: string; onNavigate: (p:
       {/* 底部 */}
       <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>📄 {reportDate ? `日报 ${reportDate}` : '—'}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename}>
+            📄 {latestFilename || (reportDate ? `日报 ${reportDate}` : '—')}
+          </span>
           <span style={{ color: '#3b82f6' }}>点击查看积压清单 →</span>
         </div>
       </div>
@@ -988,6 +994,7 @@ function CityWorkloadCard({ color, onNavigate }: { color: string; onNavigate: (p
   }
 
   const reportDate = summary?.report_date || ''
+  const latestFilename = (summary as any)?.latest_filename || ''
 
   return (
     <div
@@ -1060,7 +1067,9 @@ function CityWorkloadCard({ color, onNavigate }: { color: string; onNavigate: (p
       {/* 底部 */}
       <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>📄 {reportDate ? `统计 ${reportDate}` : '—'}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename}>
+            📄 {latestFilename || (reportDate ? `统计 ${reportDate}` : '—')}
+          </span>
           <span style={{ color: '#3b82f6' }}>点击查看人员明细 →</span>
         </div>
       </div>
@@ -1098,6 +1107,7 @@ function FiveCategoryWithdrawalCard({ color, onNavigate }: { color: string; onNa
   }
 
   const reportDate = summary?.report_date || ''
+  const latestFilename = (summary as any)?.latest_filename || ''
 
   return (
     <div
@@ -1200,7 +1210,9 @@ function FiveCategoryWithdrawalCard({ color, onNavigate }: { color: string; onNa
       {/* 底部 */}
       <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 10 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>📄 {reportDate ? `通报 ${reportDate}` : '—'}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename}>
+            📄 {latestFilename || (reportDate ? `通报 ${reportDate}` : '—')}
+          </span>
           <span style={{ color: '#3b82f6' }}>点击查看退撤单明细 →</span>
         </div>
       </div>
@@ -1238,6 +1250,7 @@ function ComplaintBacklogCard({ color, onNavigate }: { color: string; onNavigate
   }
 
   const reportDate = summary?.report_date || ''
+  const latestFilename = (summary as any)?.latest_filename || ''
   const totalBacklog = summary?.total_backlog || '—'
   const backlog10086 = summary?.backlog_10086 || '—'
   const backlogGlobal = summary?.backlog_global || '—'
@@ -1357,8 +1370,10 @@ function ComplaintBacklogCard({ color, onNavigate }: { color: string; onNavigate
 
       {/* 底部信息 */}
       <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>📄 {reportDate ? `通报 ${reportDate}` : '—'}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename}>
+            📄 {latestFilename || (reportDate ? `通报 ${reportDate}` : '—')}
+          </span>
           <span>点击重新解析 →</span>
         </div>
       </div>
@@ -1396,6 +1411,7 @@ function Complaint10086Card({ color, onNavigate }: { color: string; onNavigate: 
   }
 
   const reportDate = summary?.report_date || ''
+  const latestFilename = (summary as any)?.latest_filename || ''
   const totalBacklog = summary?.total_backlog || '—'
   const totalNotOverdue = summary?.total_not_overdue || '—'
   const todayNeedProcess = summary?.today_need_process || '—'
@@ -1496,8 +1512,10 @@ function Complaint10086Card({ color, onNavigate }: { color: string; onNavigate: 
 
       {/* 底部信息 */}
       <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <span>📄 {reportDate ? `通报 ${reportDate}` : '—'}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename}>
+            📄 {latestFilename || (reportDate ? `通报 ${reportDate}` : '—')}
+          </span>
           <span>点击查看清单 →</span>
         </div>
       </div>
@@ -1726,8 +1744,16 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
   return (
     <div>
       {CATEGORIES.map(cat => {
-        const items = grouped[cat.name] || []
+        const items = [...(grouped[cat.name] || [])]
         if (items.length === 0) return null
+        // 按 keywords 顺序对 items 排序（keyword 越早出现，排得越靠前）
+        items.sort((a, b) => {
+          const idxA = cat.keywords.findIndex(kw => a.name.includes(kw))
+          const idxB = cat.keywords.findIndex(kw => b.name.includes(kw))
+          if (idxA === -1) return 1
+          if (idxB === -1) return -1
+          return idxA - idxB
+        })
         return (
           <div key={cat.name} style={{ marginBottom: 32 }}>
             <h3 style={{
@@ -1861,6 +1887,7 @@ function Complaint2200000Card({ onNavigate }: { color: string; onNavigate: (p: P
   }, [])
 
   const reportDate = summary?.report_date || ''
+  const latestFilename = (summary as any)?.latest_filename || ''
   const monthlyDispatch = summary?.monthly_dispatch || '—'
   const overdueBacklog = summary?.overdue_backlog || '—'
   const notOverdueBacklog = summary?.not_overdue_backlog || '—'
@@ -1930,6 +1957,16 @@ function Complaint2200000Card({ onNavigate }: { color: string; onNavigate: (p: P
       {loading && (
         <div style={{ textAlign: 'center', padding: '6px 0 0', fontSize: 11, color: '#bbb' }}>加载中...</div>
       )}
+
+      {/* 底部信息 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename}>
+            📄 {latestFilename || (reportDate ? `通报 ${reportDate}` : '—')}
+          </span>
+          <span style={{ color: '#3b82f6' }}>点击查看清单 →</span>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1948,6 +1985,7 @@ function OfflineDispatchCard({ onNavigate }: { color: string; onNavigate: (p: Pa
   }, [])
 
   const reportDate = summary?.report_date || ''
+  const latestFilename = (summary as any)?.latest_filename || ''
   const monthlyDispatch = summary?.monthly_dispatch || '—'
   const overdueBacklog = summary?.overdue_backlog || '—'
   const notOverdueBacklog = summary?.not_overdue_backlog || '—'
@@ -2009,6 +2047,16 @@ function OfflineDispatchCard({ onNavigate }: { color: string; onNavigate: (p: Pa
       {loading && (
         <div style={{ textAlign: 'center', padding: '6px 0 0', fontSize: 11, color: '#bbb' }}>加载中...</div>
       )}
+
+      {/* 底部信息 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename}>
+            📄 {latestFilename || (reportDate ? `通报 ${reportDate}` : '—')}
+          </span>
+          <span style={{ color: '#3b82f6' }}>点击查看清单 →</span>
+        </div>
+      </div>
     </div>
   )
 }
@@ -2027,6 +2075,7 @@ function RetryWarningCard({ onNavigate }: { color: string; onNavigate: (p: Page)
   }, [])
 
   const reportDate = summary?.report_date || ''
+  const latestFilename = (summary as any)?.latest_filename || ''
   const r2 = summary?.retry_2_times || '—'
   const r3 = summary?.retry_3_times || '—'
   const r4 = summary?.retry_4plus_times || '—'
@@ -2110,6 +2159,16 @@ function RetryWarningCard({ onNavigate }: { color: string; onNavigate: (p: Page)
       {loading && (
         <div style={{ textAlign: 'center', padding: '6px 0 0', fontSize: 11, color: '#bbb' }}>加载中...</div>
       )}
+
+      {/* 底部信息 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename}>
+            📄 {latestFilename || (reportDate ? `通报 ${reportDate}` : '—')}
+          </span>
+          <span style={{ color: '#3b82f6' }}>点击查看清单 →</span>
+        </div>
+      </div>
     </div>
   )
 }

@@ -78,6 +78,7 @@ class EnterpriseBroadbandSummary(Base):
     id = Column(BigInteger, primary_key=True)
     report_date = Column(String(50), comment="通报日期，如 2026-06-04")
     district = Column(String(50), default="横山", comment="区县")
+    latest_filename = Column(String(255), comment="报表文件名")
     month_accept = Column(String(50), comment="当月受理量")
     month_archive = Column(String(50), comment="当月归档量")
     month_success_rate = Column(String(50), comment="当月成功率")
@@ -118,6 +119,7 @@ class DailyReportSummary(Base):
 
     id = Column(BigInteger, primary_key=True)
     report_date = Column(String(50), comment="通报日期")
+    latest_filename = Column(String(255), comment="报表文件名")
     two_cat_backlog_total = Column(String(50), comment="两类-积压总量")
     two_cat_broadband_rate = Column(String(50), comment="两类-家宽转化率")
     two_cat_fttr_rate = Column(String(50), comment="两类-FTTR转化率")
@@ -163,6 +165,7 @@ class CityWorkloadSummary(Base):
     id = Column(BigInteger, primary_key=True)
     report_date = Column(String(50), comment="通报日期")
     district = Column(String(50), default="横山", comment="区县")
+    latest_filename = Column(String(255), comment="报表文件名")
     total_staff = Column(String(50), comment="人员数量")
     working_staff = Column(String(50), comment="有工作量人数（当日）")
     leave_staff = Column(String(50), comment="请假人数")
@@ -197,6 +200,7 @@ class FiveCategoryWithdrawalSummary(Base):
     id = Column(BigInteger, primary_key=True)
     report_date = Column(String(50), comment="通报日期，如 2026-06-04")
     district = Column(String(50), default="横山", comment="区县")
+    latest_filename = Column(String(255), comment="报表文件名")
 
     # 日粒度指标
     day_withdrawal_total = Column(String(50), comment="日粒度-宽带（含FTTR)退撤总量")
@@ -248,6 +252,7 @@ class ComplaintBacklogSummary(Base):
     id = Column(BigInteger, primary_key=True)
     report_date = Column(String(50), comment="通报日期，如 2026-06-04")
     district = Column(String(50), default="横山", comment="区县")
+    latest_filename = Column(String(255), comment="报表文件名")
     backlog_10086 = Column(String(50), comment="10086积压")
     backlog_global = Column(String(50), comment="全球通积压")
     backlog_2200000 = Column(String(50), comment="2200000积压")
@@ -270,6 +275,7 @@ class Complaint10086Summary(Base):
     id = Column(BigInteger, primary_key=True)
     report_date = Column(String(50), comment="通报日期")
     district = Column(String(50), default="横山", comment="区县")
+    latest_filename = Column(String(255), comment="报表文件名")
     total_not_overdue = Column(String(50), comment="合计未超时积压")
     today_need_process = Column(String(50), comment="今日需处理量")
     broadband_business = Column(String(50), comment="家宽业务")
@@ -313,6 +319,7 @@ class Complaint2200000Summary(Base):
     id = Column(BigInteger, primary_key=True)
     report_date = Column(String(50), comment="通报日期")
     district = Column(String(50), default="横山", comment="区县")
+    latest_filename = Column(String(255), comment="报表文件名")
     monthly_dispatch = Column(String(50), comment="月派单量")
     overdue_backlog = Column(String(50), comment="超时积压")
     not_overdue_backlog = Column(String(50), comment="未超时积压")
@@ -353,6 +360,7 @@ class OfflineDispatchSummary(Base):
     id = Column(BigInteger, primary_key=True)
     report_date = Column(String(50), comment="通报日期")
     district = Column(String(50), default="横山", comment="区县")
+    latest_filename = Column(String(255), comment="报表文件名")
     monthly_dispatch = Column(String(50), comment="月派单量")
     overdue_backlog = Column(String(50), comment="超时积压(24h)")
     not_overdue_backlog = Column(String(50), comment="未超时积压(24h)")
@@ -394,6 +402,7 @@ class RetryWarningSummary(Base):
     id = Column(BigInteger, primary_key=True)
     report_date = Column(String(50), comment="通报日期")
     district = Column(String(50), default="横山", comment="区县")
+    latest_filename = Column(String(255), comment="报表文件名")
 
     # 重投86预警
     retry_2_times = Column(String(50), comment="重投2次在途量")

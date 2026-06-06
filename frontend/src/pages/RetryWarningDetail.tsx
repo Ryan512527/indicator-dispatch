@@ -77,7 +77,7 @@ function DetailTable<T extends { id: number }>({
             )}
           </div>
 
-          {/* 分页 */}}
+          {/* 分页 */}
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 12, fontSize: 13 }}>
             <button disabled={page <= 1} onClick={() => onPageChange(page - 1)}
               style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #d9d9d9', background: page <= 1 ? '#f5f5f5' : '#fff', cursor: page <= 1 ? 'not-allowed' : 'pointer' }}>

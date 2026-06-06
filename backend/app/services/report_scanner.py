@@ -1554,6 +1554,7 @@ async def reparse_enterprise_broadband(db: AsyncSession, directory: Optional[str
         ebs = EnterpriseBroadbandSummary(
             report_date=result["report_date"] or "",
             district=s["district"],
+            latest_filename=result.get("filename") or "",
             month_accept=s["month_accept"],
             month_archive=s["month_archive"],
             month_success_rate=s["month_success_rate"],
@@ -1638,7 +1639,7 @@ async def get_enterprise_broadband_summary(db: AsyncSession) -> dict:
             "month_reject": "", "total_backlog": "",
             "day_accept": "", "day_archive": "", "day_success_rate": "",
             "day_reject": "", "day_backlog": "",
-            "report_date": "",
+            "report_date": "", "latest_filename": "",
         }
     return {
         "district": row.district,
@@ -1653,6 +1654,7 @@ async def get_enterprise_broadband_summary(db: AsyncSession) -> dict:
         "day_reject": row.day_reject,
         "day_backlog": row.day_backlog,
         "report_date": row.report_date,
+        "latest_filename": getattr(row, "latest_filename", "") or "",
     }
 
 
@@ -2098,6 +2100,7 @@ async def reparse_daily_report(db: AsyncSession, directory: Optional[str] = None
 
         drs = DailyReportSummary(
             report_date=result["report_date"] or "",
+            latest_filename=result.get("filename") or "",
             two_cat_backlog_total=two.get("积压总量", ""),
             two_cat_broadband_rate=two.get("家宽转化率", ""),
             two_cat_fttr_rate=two.get("FTTR转化率", ""),
@@ -2188,12 +2191,14 @@ async def get_daily_report_summary(db: AsyncSession) -> dict:
     if not row:
         return {
             "report_date": "",
+            "latest_filename": "",
             "two_cat": {"积压总量": "", "家宽转化率": "", "FTTR转化率": "", "总装机转化率": ""},
             "five_cat": {"积压总量": "", "家宽转化率": "", "智能组网": "", "平安乡村": "", "FTTR转化率": "", "总装机转化率": ""},
         }
 
     return {
         "report_date": row.report_date,
+        "latest_filename": getattr(row, "latest_filename", "") or "",
         "two_cat": {
             "积压总量": row.two_cat_backlog_total,
             "家宽转化率": row.two_cat_broadband_rate,
@@ -2664,6 +2669,7 @@ async def reparse_city_workload(db: AsyncSession, directory: Optional[str] = Non
         cws = CityWorkloadSummary(
             report_date=result["report_date"] or "",
             district=s.get("district", "横山"),
+            latest_filename=result.get("filename") or "",
             total_staff=s.get("total_staff", ""),
             working_staff=s.get("working_staff", ""),
             leave_staff=s.get("leave_staff", ""),
@@ -2745,6 +2751,7 @@ async def get_city_workload_summary(db: AsyncSession) -> dict:
             "leave_staff": "",
             "no_work_ratio": "",
             "report_date": "",
+            "latest_filename": "",
         }
 
     return {
@@ -2754,6 +2761,7 @@ async def get_city_workload_summary(db: AsyncSession) -> dict:
         "leave_staff": row.leave_staff,
         "no_work_ratio": row.no_work_ratio,
         "report_date": row.report_date,
+        "latest_filename": getattr(row, "latest_filename", "") or "",
     }
 
 
@@ -3030,6 +3038,7 @@ async def reparse_five_category_withdrawal(db: AsyncSession, directory: Optional
         fcws = FiveCategoryWithdrawalSummary(
             report_date=result["report_date"] or "",
             district=s["district"],
+            latest_filename=result.get("filename") or "",
             day_withdrawal_total=s["day_withdrawal_total"],
             day_reinstall_total=s["day_reinstall_total"],
             month_withdrawal_total=s["month_withdrawal_total"],
@@ -3116,6 +3125,7 @@ async def get_five_category_withdrawal_summary(db: AsyncSession) -> dict:
             "month_withdrawal_total": "",
             "month_reinstall_total": "",
             "report_date": "",
+            "latest_filename": "",
         }
 
     return {
@@ -3125,6 +3135,7 @@ async def get_five_category_withdrawal_summary(db: AsyncSession) -> dict:
         "month_withdrawal_total": row.month_withdrawal_total,
         "month_reinstall_total": row.month_reinstall_total,
         "report_date": row.report_date,
+        "latest_filename": getattr(row, "latest_filename", "") or "",
     }
 
 
@@ -3351,6 +3362,7 @@ async def reparse_complaint_backlog(db: AsyncSession, directory: Optional[str] =
         cbs = ComplaintBacklogSummary(
             report_date=result["report_date"] or "",
             district=s["district"],
+            latest_filename=result.get("filename") or "",
             backlog_10086=s["backlog_10086"],
             backlog_global=s["backlog_global"],
             backlog_2200000=s["backlog_2200000"],
@@ -3422,6 +3434,7 @@ async def get_complaint_backlog_summary(db: AsyncSession) -> dict:
             "previous_day_backlog": "",
             "ratio": "",
             "report_date": "",
+            "latest_filename": "",
         }
 
     return {
@@ -3434,6 +3447,7 @@ async def get_complaint_backlog_summary(db: AsyncSession) -> dict:
         "previous_day_backlog": row.previous_day_backlog,
         "ratio": row.ratio,
         "report_date": row.report_date,
+        "latest_filename": getattr(row, "latest_filename", "") or "",
     }
 
 
@@ -3805,6 +3819,7 @@ async def reparse_complaint_10086(db: AsyncSession, directory: Optional[str] = N
         cbs = Complaint10086Summary(
             report_date=result["report_date"] or "",
             district=s["district"],
+            latest_filename=result.get("filename") or "",
             total_not_overdue=s["total_not_overdue"],
             today_need_process=s["today_need_process"],
             broadband_business=s["broadband_business"],
@@ -3898,6 +3913,7 @@ async def get_complaint_10086_summary(db: AsyncSession) -> dict:
             "warn_2h_overdue": "",
             "overdue_2_4h": "",
             "report_date": "",
+            "latest_filename": "",
         }
 
     return {
@@ -3910,6 +3926,7 @@ async def get_complaint_10086_summary(db: AsyncSession) -> dict:
         "warn_2h_overdue": row.warn_2h_overdue or "",
         "overdue_2_4h": row.overdue_2_4h or "",
         "report_date": row.report_date,
+        "latest_filename": getattr(row, "latest_filename", "") or "",
     }
 
 
@@ -4287,6 +4304,7 @@ async def reparse_complaint_2200000(db: AsyncSession, directory: Optional[str] =
         cbs = Complaint2200000Summary(
             report_date=result["report_date"] or "",
             district=s["district"],
+            latest_filename=result.get("filename") or "",
             monthly_dispatch=s["monthly_dispatch"],
             overdue_backlog=s["overdue_backlog"],
             not_overdue_backlog=s["not_overdue_backlog"],
@@ -4373,6 +4391,7 @@ async def get_complaint_2200000_summary(db: AsyncSession) -> dict:
             "warn_4h_overdue": "",
             "escalate_complaint": "",
             "report_date": "",
+            "latest_filename": "",
         }
 
     return {
@@ -4385,6 +4404,7 @@ async def get_complaint_2200000_summary(db: AsyncSession) -> dict:
         "warn_4h_overdue": row.warn_4h_overdue,
         "escalate_complaint": row.escalate_complaint,
         "report_date": row.report_date,
+        "latest_filename": getattr(row, "latest_filename", "") or "",
     }
 
 
@@ -4676,6 +4696,7 @@ async def reparse_offline_dispatch(db: AsyncSession, directory: Optional[str] = 
         ods = OfflineDispatchSummary(
             report_date=result["report_date"] or "",
             district=s["district"],
+            latest_filename=result.get("filename") or "",
             monthly_dispatch=s["monthly_dispatch"],
             overdue_backlog=s["overdue_backlog"],
             not_overdue_backlog=s["not_overdue_backlog"],
@@ -4729,6 +4750,7 @@ async def get_offline_dispatch_summary(db: AsyncSession) -> dict:
             "total_in_transit": "",
             "warn_4h_overdue": "",
             "report_date": "",
+            "latest_filename": "",
         }
 
     return {
@@ -4739,6 +4761,7 @@ async def get_offline_dispatch_summary(db: AsyncSession) -> dict:
         "total_in_transit": row.total_in_transit,
         "warn_4h_overdue": row.warn_4h_overdue,
         "report_date": row.report_date,
+        "latest_filename": getattr(row, "latest_filename", "") or "",
     }
 
 
@@ -4857,7 +4880,19 @@ def _parse_retry_warning_files(directory: str) -> dict:
             ws2 = wb["预警2催修未恢复"]
             rows2 = list(ws2.iter_rows(values_only=True))
             if rows2 and len(rows2) > 1:
-                header2 = rows2[0]
+                # 搜索表头行（可能有标题行，表头不一定在第0行）
+                header_row_idx2 = None
+                for ri, row in enumerate(rows2):
+                    for cell in row:
+                        if cell and ("县区" in str(cell) or "催修次数" in str(cell)):
+                            header_row_idx2 = ri
+                            break
+                    if header_row_idx2 is not None:
+                        break
+                if header_row_idx2 is None:
+                    header_row_idx2 = 0
+
+                header2 = rows2[header_row_idx2]
                 col_map2 = {}
                 for i, cell in enumerate(header2):
                     if cell:
@@ -4868,14 +4903,16 @@ def _parse_retry_warning_files(directory: str) -> dict:
                 col_call_num  = col_map2.get("来电号码")
                 col_address2  = col_map2.get("地址")
                 col_reg_date  = col_map2.get("登记日期")
-                col_repair_count = col_map2.get("催修次数") or col_map2.get("呼入类型")
+                col_repair_count = col_map2.get("催修次数")
+
+                logger.info(f"重投预警-预警2催修: 表头行={header_row_idx2}, col_map2={col_map2}, col_repair_count={col_repair_count}")
 
                 def _safe_str2(row, idx):
                     if idx is None or idx >= len(row) or row[idx] is None:
                         return ""
                     return str(row[idx]).strip()
 
-                for row in rows2[1:]:
+                for row in rows2[header_row_idx2 + 1:]:
                     district = _safe_str2(row, col_district2)
                     if not district or "横山" not in district:
                         continue
@@ -4924,6 +4961,7 @@ async def reparse_retry_warning(db: AsyncSession, directory: Optional[str] = Non
         rws = RetryWarningSummary(
             report_date=result["report_date"] or "",
             district=s["district"],
+            latest_filename=result.get("filename") or "",
             retry_2_times=s["retry_2_times"],
             retry_3_times=s["retry_3_times"],
             retry_4plus_times=s["retry_4plus_times"],
@@ -4999,6 +5037,7 @@ async def get_retry_warning_summary(db: AsyncSession) -> dict:
             "repair_in_transit": "",
             "repair_closed": "",
             "report_date": "",
+            "latest_filename": "",
         }
 
     return {
@@ -5012,4 +5051,5 @@ async def get_retry_warning_summary(db: AsyncSession) -> dict:
         "repair_in_transit": row.repair_in_transit,
         "repair_closed": row.repair_closed,
         "report_date": row.report_date,
+        "latest_filename": getattr(row, "latest_filename", "") or "",
     }
