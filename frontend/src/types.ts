@@ -66,7 +66,8 @@ export type Page =
   | { name: "daily-report-detail" }
   | { name: "city-workload-detail" }
   | { name: "five-category-withdrawal-detail" }
-  | { name: "complaint-10086-detail" };
+  | { name: "complaint-10086-detail" }
+  | { name: "complaint-2200000-detail" };
 
 export interface WirelessOutageSummary {
   total: number;
@@ -246,4 +247,28 @@ export interface Complaint10086DetailRecord {
   is_door_service: string;
   complaint_category5: string;
   reply_content: string;
+}
+
+export interface Complaint2200000Summary {
+  district: string;
+  monthly_dispatch: string;
+  overdue_backlog: string;
+  not_overdue_backlog: string;
+  total_in_transit: string;
+  previous_month_backlog: string;
+  warn_4h_overdue: string;
+  escalate_complaint: string;
+  report_date: string;
+}
+
+export interface Complaint2200000DetailRecord {
+  id: number;
+  district: string;
+  timeout_deadline: string;
+  broadband_account: string;
+  is_important_customer: string;
+  customer_contact: string;
+  construction_address: string;
+  handler_name: string;
+  category: string;
 }

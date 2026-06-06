@@ -567,3 +567,36 @@ async def complaint_10086_reparse(
     from app.services.report_scanner import reparse_complaint_10086
     result = await reparse_complaint_10086(db, directory)
     return {"report_type": "10086投诉积压(督办)", **result}
+
+
+# ── 2200000及时率通报 ──
+
+@router.get("/reports/complaint-2200000/summary")
+async def complaint_2200000_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取2200000及时率通报横山卡片指标"""
+    from app.services.report_scanner import get_complaint_2200000_summary
+    return await get_complaint_2200000_summary(db)
+
+
+@router.get("/reports/complaint-2200000/detail")
+async def complaint_2200000_detail(
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """分页获取2200000及时率通报横山明细"""
+    from app.services.report_scanner import get_complaint_2200000_details
+    return await get_complaint_2200000_details(db, page, page_size)
+
+
+@router.post("/reports/complaint-2200000/reparse")
+async def complaint_2200000_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析2200000及时率通报文件，提取横山汇总+明细数据"""
+    from app.services.report_scanner import reparse_complaint_2200000
+    result = await reparse_complaint_2200000(db, directory)
+    return {"report_type": "2200000及时率通报", **result}

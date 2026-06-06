@@ -31,6 +31,7 @@ export default function App() {
         page.name === 'city-workload-detail' ? '/city-workload-detail' :
         page.name === 'five-category-withdrawal-detail' ? '/five-category-withdrawal' :
         page.name === 'complaint-10086-detail' ? '/complaint-10086' :
+        page.name === 'complaint-2200000-detail' ? '/complaint-2200000' :
         ''
       }
       onNavigate={(p: string | Page) => {
@@ -54,6 +55,7 @@ export default function App() {
       {page.name === 'city-workload-detail' && <CityWorkloadDetail onBack={() => setPage({ name: 'dashboard' })} />}
       {page.name === 'five-category-withdrawal-detail' && <FiveCategoryWithdrawalDetail onBack={() => setPage({ name: 'dashboard' })} />}
       {page.name === 'complaint-10086-detail' && <Dashboard onNavigate={p => setPage(p)} initialPage="complaint-10086-detail" />}
+      {page.name === 'complaint-2200000-detail' && <Dashboard onNavigate={p => setPage(p)} initialPage="complaint-2200000-detail" />}
     </Layout>
   )
 }

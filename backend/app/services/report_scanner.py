@@ -3850,3 +3850,475 @@ async def get_complaint_10086_details(
         "page": page,
         "page_size": page_size,
     }
+
+
+# ── 2200000及时率通报 ──
+
+def _parse_complaint_2200000_files(directory: str) -> dict:
+    """
+    解析最新的"2200000及时率通报"文件：
+    1. 从"通报"sheet 提取横山汇总指标
+    2. 从"累计在途需处理（自接）"sheet 提取横山在途明细（剔重=正常）
+    3. 从"往月积压"sheet 提取横山往月明细
+    """
+    from datetime import datetime as _dt, timedelta
+
+    matching: list[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("~$") or f.startswith("."):
+                continue
+            if "2200000及时率" in f and f.lower().endswith((".xlsx", ".xls")):
+                matching.append(os.path.join(root, f))
+
+    if not matching:
+        return {"summary": None, "details": [], "filename": None, "report_date": None}
+
+    matching.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+    latest_file = matching[0]
+    filename = os.path.basename(latest_file)
+
+    # 尝试从文件名提取日期
+    report_date = None
+    date_match = re.search(r'(\d{1,2})\.(\d{1,2})', filename)
+    if date_match:
+        now_year = _dt.now().year
+        report_date = f"{now_year}-{date_match.group(1).zfill(2)}-{date_match.group(2).zfill(2)}"
+    else:
+        report_date = _dt.now().strftime("%Y-%m-%d")
+
+    try:
+        wb = openpyxl.load_workbook(latest_file, read_only=True, data_only=True)
+
+        # ── 解析"通报"sheet ──
+        summary = None
+        if "通报" in wb.sheetnames:
+            ws = wb["通报"]
+            rows_data = list(ws.iter_rows(values_only=True))
+
+            # 找到包含"月派单量"的子表头行
+            header_row_idx = None
+            header_row = None
+            for idx, row in enumerate(rows_data):
+                row_text = " ".join(str(c) for c in row if c)
+                if "月派单量" in row_text:
+                    header_row_idx = idx
+                    header_row = row
+                    break
+
+            if header_row_idx is not None:
+                col_map: dict[str, int] = {}
+                target_fields = ["县区", "月派单量", "超时积压", "未超时积压", "累计在途", "往月积压",
+                                 "预警4小时超时", "升级投诉量"]
+
+                for target in target_fields:
+                    for idx2, cell in enumerate(header_row):
+                        if cell and target in str(cell).strip():
+                            col_map[target] = idx2
+                            break
+
+                # 扫描上一行补全
+                if header_row_idx > 0:
+                    parent_header = rows_data[header_row_idx - 1]
+                    for target in target_fields:
+                        if target not in col_map:
+                            for idx2, cell in enumerate(parent_header):
+                                if cell and target in str(cell).strip():
+                                    col_map[target] = idx2
+                                    break
+
+                # 再上上行
+                if header_row_idx > 1:
+                    grand_header = rows_data[header_row_idx - 2]
+                    for target in target_fields:
+                        if target not in col_map:
+                            for idx2, cell in enumerate(grand_header):
+                                if cell and target in str(cell).strip():
+                                    col_map[target] = idx2
+                                    break
+
+                # 查找横山行
+                for row in rows_data[header_row_idx + 1:]:
+                    if not row or len(row) <= 1:
+                        continue
+                    district_val = ""
+                    district_key = "县区" if "县区" in col_map else None
+                    if district_key and col_map[district_key] < len(row) and row[col_map[district_key]]:
+                        district_val = str(row[col_map[district_key]]).strip()
+
+                    if district_val in ("横山", "横山县"):
+                        def _safe_str(key: str) -> str:
+                            idx2 = col_map.get(key)
+                            if idx2 is not None and idx2 < len(row) and row[idx2] is not None:
+                                val = row[idx2]
+                                if isinstance(val, (int, float)):
+                                    return str(int(val)) if isinstance(val, int) or val == int(val) else str(val)
+                                return str(val).strip()
+                            return ""
+
+                        summary = {
+                            "district": "横山",
+                            "monthly_dispatch": _safe_str("月派单量"),
+                            "overdue_backlog": _safe_str("超时积压"),
+                            "not_overdue_backlog": _safe_str("未超时积压"),
+                            "total_in_transit": _safe_str("累计在途"),
+                            "previous_month_backlog": _safe_str("往月积压"),
+                            "warn_4h_overdue": _safe_str("预警4小时超时"),
+                            "escalate_complaint": _safe_str("升级投诉量"),
+                        }
+                        break
+
+        # ── 解析"累计在途需处理（自接）"sheet ──
+        details: list[dict] = []
+        # 用实时时间计算超时状态（不依赖缓存公式值）
+        _now = _dt.now()
+        _overdue_cnt = 0
+        _not_overdue_cnt = 0
+        _warn_4h_cnt = 0
+        _parsed_detail = False
+        sheet1_name = None
+        for sn in wb.sheetnames:
+            if "累计在途" in sn and "自接" in sn:
+                sheet1_name = sn
+                break
+
+        if sheet1_name:
+            _parsed_detail = True
+            ws1 = wb[sheet1_name]
+            rows1 = list(ws1.iter_rows(values_only=True))
+
+            if len(rows1) >= 2:
+                header1 = rows1[0]
+                # 建立列映射 - 使用动态匹配
+                col_map1: dict[str, int] = {}
+                detail_fields1 = ["所属区县", "超时时限", "客服受理时间", "宽带帐号", "是否重要客户",
+                                  "客户联系方式", "施工地址", "处理人姓名", "剔重"]
+
+                for target in detail_fields1:
+                    for idx2, cell in enumerate(header1):
+                        if cell and target in str(cell).strip():
+                            col_map1[target] = idx2
+                            break
+
+                # 注意"超时时限"可能出现两次（列4和列29），需要最后一个（AD列）
+                for idx2, cell in enumerate(header1):
+                    if cell and "超时时限" in str(cell).strip():
+                        col_map1["超时时限"] = idx2
+
+                accept_time_col = col_map1.get("客服受理时间")
+
+                for row in rows1[1:]:
+                    if not row or len(row) <= 2:
+                        continue
+                    district_val = ""
+                    if "所属区县" in col_map1:
+                        idx2 = col_map1["所属区县"]
+                        if idx2 < len(row) and row[idx2]:
+                            district_val = str(row[idx2]).strip()
+
+                    if district_val not in ("横山", "横山县"):
+                        continue
+
+                    # 检查剔重
+                    tichong_val = ""
+                    if "剔重" in col_map1:
+                        idx2 = col_map1["剔重"]
+                        if idx2 < len(row) and row[idx2]:
+                            tichong_val = str(row[idx2]).strip()
+
+                    if tichong_val != "正常":
+                        continue
+
+                    # 用当前实时时间计算超时状态（不依赖缓存的公式值）
+                    accept_time = None
+                    if accept_time_col is not None and accept_time_col < len(row) and row[accept_time_col]:
+                        val = row[accept_time_col]
+                        if isinstance(val, _dt):
+                            accept_time = val
+                        elif isinstance(val, str):
+                            try:
+                                accept_time = _dt.strptime(val, "%Y-%m-%d %H:%M:%S")
+                            except:
+                                pass
+
+                    is_timeout = False
+                    is_warn_4h = False
+                    if accept_time:
+                        # 超时时限 = 客服受理时间 + 1天
+                        deadline_24h = accept_time + timedelta(days=1)
+                        is_timeout = _now > deadline_24h
+                        # 预警4小时 = (客服受理时间 + 2天 - NOW) * 24 < 4
+                        deadline_48h = accept_time + timedelta(hours=48)
+                        remaining = (deadline_48h - _now).total_seconds() / 3600
+                        is_warn_4h = 0 <= remaining < 4
+
+                    if accept_time:
+                        if is_timeout:
+                            _overdue_cnt += 1
+                        else:
+                            _not_overdue_cnt += 1
+                        if is_warn_4h:
+                            _warn_4h_cnt += 1
+
+                    def _safe_str1(key: str) -> str:
+                        idx3 = col_map1.get(key)
+                        if idx3 is not None and idx3 < len(row) and row[idx3] is not None:
+                            val = row[idx3]
+                            if isinstance(val, _dt):
+                                return val.strftime("%Y-%m-%d %H:%M:%S")
+                            return str(val).strip()
+                        return ""
+
+                    details.append({
+                        "district": "横山",
+                        "timeout_deadline": _safe_str1("超时时限"),
+                        "broadband_account": _safe_str1("宽带帐号"),
+                        "is_important_customer": _safe_str1("是否重要客户"),
+                        "customer_contact": _safe_str1("客户联系方式"),
+                        "construction_address": _safe_str1("施工地址"),
+                        "handler_name": _safe_str1("处理人姓名"),
+                        "category": "在途",
+                    })
+
+        # ── 解析"往月积压"sheet ──
+        if "往月积压" in wb.sheetnames:
+            ws2 = wb["往月积压"]
+            rows2 = list(ws2.iter_rows(values_only=True))
+
+            if len(rows2) >= 2:
+                header2 = rows2[0]
+                col_map2: dict[str, int] = {}
+                detail_fields2 = ["所属区县", "超时时限", "宽带帐号", "是否重要客户",
+                                  "客户联系方式", "施工地址", "处理人姓名"]
+
+                for target in detail_fields2:
+                    for idx2, cell in enumerate(header2):
+                        if cell and target in str(cell).strip():
+                            col_map2[target] = idx2
+                            break
+
+                for row in rows2[1:]:
+                    if not row or len(row) <= 2:
+                        continue
+                    district_val = ""
+                    if "所属区县" in col_map2:
+                        idx2 = col_map2["所属区县"]
+                        if idx2 < len(row) and row[idx2]:
+                            district_val = str(row[idx2]).strip()
+
+                    if district_val not in ("横山", "横山县"):
+                        continue
+
+                    def _safe_str2(key: str) -> str:
+                        idx3 = col_map2.get(key)
+                        if idx3 is not None and idx3 < len(row) and row[idx3] is not None:
+                            val = row[idx3]
+                            if isinstance(val, _dt):
+                                return val.strftime("%Y-%m-%d %H:%M:%S")
+                            return str(val).strip()
+                        return ""
+
+                    details.append({
+                        "district": "横山",
+                        "timeout_deadline": _safe_str2("超时时限"),
+                        "broadband_account": _safe_str2("宽带帐号"),
+                        "is_important_customer": _safe_str2("是否重要客户"),
+                        "customer_contact": _safe_str2("客户联系方式"),
+                        "construction_address": _safe_str2("施工地址"),
+                        "handler_name": _safe_str2("处理人姓名"),
+                        "category": "往月",
+                    })
+
+        wb.close()
+
+        # 用实时计算的明细数据覆盖汇总值（避免缓存公式值过时）
+        if _parsed_detail and summary:
+            summary["overdue_backlog"] = str(_overdue_cnt)
+            summary["not_overdue_backlog"] = str(_not_overdue_cnt)
+            summary["total_in_transit"] = str(_overdue_cnt + _not_overdue_cnt)
+            summary["warn_4h_overdue"] = str(_warn_4h_cnt)
+            _prev_cnt = sum(1 for d in details if d["category"] == "往月")
+            summary["previous_month_backlog"] = str(_prev_cnt)
+
+        if summary:
+            logger.info(f"2200000及时率横山汇总: {filename} -> {summary}")
+        else:
+            logger.warning(f"2200000及时率: {filename} 未找到横山汇总数据")
+        logger.info(f"2200000及时率横山明细: {len(details)} 条")
+
+        return {
+            "summary": summary,
+            "details": details,
+            "filename": filename,
+            "report_date": report_date,
+        }
+
+    except Exception as e:
+        logger.error(f"解析2200000及时率通报失败 {filename}: {e}", exc_info=True)
+        return {"summary": None, "details": [], "filename": filename, "report_date": report_date}
+
+
+async def reparse_complaint_2200000(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """重新解析2200000及时率通报文件，提取横山汇总+明细数据，更新数据库。"""
+    if directory is None:
+        directory = settings.watch_dir
+
+    result = await asyncio.to_thread(_parse_complaint_2200000_files, directory)
+
+    from app.core.models import Complaint2200000Summary, Complaint2200000Detail
+    from sqlalchemy import delete as _delete
+
+    # 删除旧汇总+明细数据
+    await db.execute(_delete(Complaint2200000Summary))
+    await db.execute(_delete(Complaint2200000Detail))
+
+    summary_count = 0
+    if result["summary"]:
+        s = result["summary"]
+        cbs = Complaint2200000Summary(
+            report_date=result["report_date"] or "",
+            district=s["district"],
+            monthly_dispatch=s["monthly_dispatch"],
+            overdue_backlog=s["overdue_backlog"],
+            not_overdue_backlog=s["not_overdue_backlog"],
+            total_in_transit=s["total_in_transit"],
+            previous_month_backlog=s["previous_month_backlog"],
+            warn_4h_overdue=s["warn_4h_overdue"],
+            escalate_complaint=s["escalate_complaint"],
+        )
+        db.add(cbs)
+        summary_count = 1
+
+    # 获取或创建报表类型
+    stmt = select(ReportType).where(ReportType.name == "2200000及时率通报")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        report_type = ReportType(name="2200000及时率通报", category="投诉")
+        db.add(report_type)
+        await db.flush()
+
+    # 删除旧的 report_files/report_records
+    old_files_stmt = select(ReportFile.id).where(ReportFile.report_type_id == report_type.id)
+    r2 = await db.execute(old_files_stmt)
+    old_file_ids = [row[0] for row in r2.all()]
+    if old_file_ids:
+        await db.execute(_delete(ReportRecord).where(ReportRecord.report_file_id.in_(old_file_ids)))
+        await db.execute(_delete(ReportFile).where(ReportFile.report_type_id == report_type.id))
+
+    # 创建 ReportFile
+    detail_count = 0
+    if result["filename"]:
+        report_file = ReportFile(
+            report_type_id=report_type.id,
+            filename=result["filename"] or "",
+            file_path=os.path.join(directory, result["filename"] or ""),
+            parse_status="parsed",
+            record_count=len(result["details"]),
+        )
+        db.add(report_file)
+        await db.flush()
+        detail_count = len(result["details"])
+
+        # 写入明细
+        for d in result["details"]:
+            detail = Complaint2200000Detail(
+                report_file_id=report_file.id,
+                district=d["district"],
+                timeout_deadline=d["timeout_deadline"],
+                broadband_account=d["broadband_account"],
+                is_important_customer=d["is_important_customer"],
+                customer_contact=d["customer_contact"],
+                construction_address=d["construction_address"],
+                handler_name=d["handler_name"],
+                category=d["category"],
+            )
+            db.add(detail)
+
+    await db.commit()
+
+    return {
+        "summary_parsed": summary_count,
+        "detail_parsed": detail_count,
+        "filename": result["filename"],
+        "report_date": result["report_date"],
+    }
+
+
+async def get_complaint_2200000_summary(db: AsyncSession) -> dict:
+    """获取2200000及时率通报横山卡片指标"""
+    from app.core.models import Complaint2200000Summary
+
+    stmt = select(Complaint2200000Summary).order_by(Complaint2200000Summary.id.desc()).limit(1)
+    r = await db.execute(stmt)
+    row = r.scalar_one_or_none()
+
+    if not row:
+        return {
+            "district": "横山",
+            "monthly_dispatch": "",
+            "overdue_backlog": "",
+            "not_overdue_backlog": "",
+            "total_in_transit": "",
+            "previous_month_backlog": "",
+            "warn_4h_overdue": "",
+            "escalate_complaint": "",
+            "report_date": "",
+        }
+
+    return {
+        "district": row.district,
+        "monthly_dispatch": row.monthly_dispatch,
+        "overdue_backlog": row.overdue_backlog,
+        "not_overdue_backlog": row.not_overdue_backlog,
+        "total_in_transit": row.total_in_transit,
+        "previous_month_backlog": row.previous_month_backlog,
+        "warn_4h_overdue": row.warn_4h_overdue,
+        "escalate_complaint": row.escalate_complaint,
+        "report_date": row.report_date,
+    }
+
+
+async def get_complaint_2200000_details(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
+    """分页获取2200000及时率通报横山明细"""
+    from app.core.models import Complaint2200000Detail
+    from sqlalchemy import func as _func
+
+    count_stmt = select(_func.count(Complaint2200000Detail.id))
+    r = await db.execute(count_stmt)
+    total = r.scalar() or 0
+
+    offset = (page - 1) * page_size
+    data_stmt = (
+        select(Complaint2200000Detail)
+        .order_by(Complaint2200000Detail.id.asc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    r2 = await db.execute(data_stmt)
+    rows = r2.scalars().all()
+
+    records = []
+    for row in rows:
+        records.append({
+            "id": row.id,
+            "district": row.district,
+            "timeout_deadline": row.timeout_deadline,
+            "broadband_account": row.broadband_account,
+            "is_important_customer": row.is_important_customer,
+            "customer_contact": row.customer_contact,
+            "construction_address": row.construction_address,
+            "handler_name": row.handler_name,
+            "category": row.category,
+        })
+
+    return {
+        "records": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }

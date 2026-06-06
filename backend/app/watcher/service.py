@@ -15,6 +15,7 @@ SUPPORTED_EXTENSIONS = {".csv", ".json", ".xlsx", ".xls", ".xml"}
 SPECIALIZED_REPORTS = [
     ("宽带在途投诉",   "complaint-backlog"),
     ("投诉积压通报新", "complaint-10086"),
+    ("2200000及时率",  "complaint-2200000"),
     ("五类工单退撤单", "five-category-withdrawal"),
     ("装维工作量",     "city-workload"),
     ("无线退服",       "wireless-outage"),

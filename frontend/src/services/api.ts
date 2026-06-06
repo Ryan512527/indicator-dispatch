@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -253,6 +253,21 @@ export const api = {
 
   reparseComplaint10086: async () => {
     const res = await fetch(`${BASE}/reports/complaint-10086/reparse`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
+    return res.json();
+  },
+
+  // ── 2200000及时率通报 ──
+  getComplaint2200000Summary: async () => {
+    return fetchJson<Complaint2200000Summary>('/reports/complaint-2200000/summary');
+  },
+  getComplaint2200000Details: async (page = 1, pageSize = 50) => {
+    return fetchJson<{ records: Complaint2200000DetailRecord[]; total: number; page: number; page_size: number }>(
+      `/reports/complaint-2200000/detail?page=${page}&page_size=${pageSize}`
+    );
+  },
+  reparseComplaint2200000: async () => {
+    const res = await fetch(`${BASE}/reports/complaint-2200000/reparse`, { method: 'POST' });
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
     return res.json();
   },

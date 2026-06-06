@@ -302,3 +302,43 @@ class Complaint10086Detail(Base):
     reply_content = Column(Text, comment="回复内容")
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Complaint2200000Summary(Base):
+    """2200000及时率通报 - 横山汇总指标（来自"通报"sheet）
+    月派单量、在途积压(超时/未超时/累计在途)、往月积压、工单预警(预警4小时超时)、升级投诉量
+    """
+    __tablename__ = "complaint_2200000_summary"
+
+    id = Column(BigInteger, primary_key=True)
+    report_date = Column(String(50), comment="通报日期")
+    district = Column(String(50), default="横山", comment="区县")
+    monthly_dispatch = Column(String(50), comment="月派单量")
+    overdue_backlog = Column(String(50), comment="超时积压")
+    not_overdue_backlog = Column(String(50), comment="未超时积压")
+    total_in_transit = Column(String(50), comment="累计在途")
+    previous_month_backlog = Column(String(50), comment="往月积压")
+    warn_4h_overdue = Column(String(50), comment="预警4小时超时")
+    escalate_complaint = Column(String(50), comment="升级投诉量")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Complaint2200000Detail(Base):
+    """2200000及时率通报 - 横山明细（来自"累计在途需处理（自接）"和"往月积压"sheet）
+    筛选条件：所属区县=横山, 剔重=正常(仅累计在途)
+    """
+    __tablename__ = "complaint_2200000_detail"
+
+    id = Column(BigInteger, primary_key=True)
+    report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=False, index=True)
+
+    district = Column(String(50), comment="所属区县")
+    timeout_deadline = Column(String(200), comment="超时时限")
+    broadband_account = Column(String(50), comment="宽带帐号")
+    is_important_customer = Column(String(20), comment="是否重要客户")
+    customer_contact = Column(String(100), comment="客户联系方式")
+    construction_address = Column(Text, comment="施工地址")
+    handler_name = Column(String(50), comment="处理人姓名")
+    category = Column(String(20), comment="分类:在途/往月")
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -1791,6 +1791,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 if (rt.name === '10086投诉积压(督办)') {
                   return <Complaint10086Card key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
+                // 2200000及时率通报用专用卡片
+                if (rt.name === '2200000及时率通报') {
+                  return <Complaint2200000Card key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
                 return <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
               })}
             </div>
@@ -1835,10 +1839,302 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
   )
 }
 
+// ── 2200000及时率通报 卡片 ──
+function Complaint2200000Card({ onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<Complaint2200000Summary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    ;(api as any).getComplaint2200000Summary()
+      .then((data: Complaint2200000Summary) => setSummary(data))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  const reportDate = summary?.report_date || ''
+  const monthlyDispatch = summary?.monthly_dispatch || '—'
+  const overdueBacklog = summary?.overdue_backlog || '—'
+  const notOverdueBacklog = summary?.not_overdue_backlog || '—'
+  const totalInTransit = summary?.total_in_transit || '—'
+  const previousMonthBacklog = summary?.previous_month_backlog || '—'
+  const warn4hOverdue = summary?.warn_4h_overdue || '—'
+  const escalateComplaint = summary?.escalate_complaint || '—'
+
+  return (
+    <div
+      onClick={() => onNavigate({ name: 'complaint-2200000-detail' })}
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+        cursor: 'pointer',
+        transition: 'box-shadow 0.2s',
+        minWidth: 260,
+      }}
+      onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)')}
+      onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)')}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e' }}>2200000及时率通报</span>
+        {reportDate && (
+          <span style={{ fontSize: 11, color: '#999' }}>{reportDate.slice(5)}</span>
+        )}
+      </div>
+
+      {/* 月派单量 - 大数字 */}
+      <div style={{ textAlign: 'center', marginBottom: 10 }}>
+        <div style={{ fontSize: 28, fontWeight: 800, color: '#2563eb', lineHeight: 1.1 }}>
+          {loading ? '...' : monthlyDispatch}
+        </div>
+        <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>月派单量</div>
+      </div>
+
+      {/* 在途积压 */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, background: '#fef2f2', borderRadius: 6, padding: '4px 6px', textAlign: 'center', minWidth: 70 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626' }}>{overdueBacklog}</div>
+          <div style={{ fontSize: 9, color: '#888' }}>超时积压</div>
+        </div>
+        <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 6, padding: '4px 6px', textAlign: 'center', minWidth: 70 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a' }}>{notOverdueBacklog}</div>
+          <div style={{ fontSize: 9, color: '#888' }}>未超时积压</div>
+        </div>
+        <div style={{ flex: 1, background: '#eff6ff', borderRadius: 6, padding: '4px 6px', textAlign: 'center', minWidth: 70 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#2563eb' }}>{totalInTransit}</div>
+          <div style={{ fontSize: 9, color: '#888' }}>累计在途</div>
+        </div>
+      </div>
+
+      {/* 预警4h超时 */}
+      <div style={{ marginBottom: 6, background: '#fff7ed', borderRadius: 6, padding: '4px 6px', textAlign: 'center' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#ea580c' }}>{warn4hOverdue}</div>
+        <div style={{ fontSize: 9, color: '#888' }}>预警4h超时</div>
+      </div>
+
+      {/* 升级投诉量 */}
+      <div style={{ textAlign: 'center', padding: '4px 0 0', borderTop: '1px solid #f0f0f0' }}>
+        <span style={{ fontSize: 11, color: '#888' }}>升级投诉量: </span>
+        <span style={{ fontSize: 15, fontWeight: 700, color: '#dc2626' }}>{escalateComplaint}</span>
+      </div>
+
+      {loading && (
+        <div style={{ textAlign: 'center', padding: '6px 0 0', fontSize: 11, color: '#bbb' }}>加载中...</div>
+      )}
+    </div>
+  )
+}
+
+// ── 2200000及时率通报 详情页 ──
+function Complaint2200000DetailPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
+  const [records, setRecords] = useState<Complaint2200000DetailRecord[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const pageSize = 50
+
+  useEffect(() => {
+    setLoading(true)
+    ;(api as any).getComplaint2200000Details(page, pageSize)
+      .then((data: any) => {
+        setRecords(data.records as Complaint2200000DetailRecord[])
+        setTotal(data.total as number)
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [page])
+
+  const totalPages = Math.ceil(total / pageSize)
+
+  const columns = [
+    { key: 'district', label: '所属区县', width: '5%', align: 'center' as const },
+    { key: 'timeout_deadline', label: '超时时限', width: '13%', align: 'left' as const },
+    { key: 'broadband_account', label: '宽带帐号', width: '9%', align: 'center' as const },
+    { key: 'is_important_customer', label: '是否重要客户', width: '7%', align: 'center' as const },
+    { key: 'customer_contact', label: '客户联系方式', width: '11%', align: 'left' as const },
+    { key: 'construction_address', label: '施工地址', width: '37%', align: 'left' as const },
+    { key: 'handler_name', label: '处理人姓名', width: '6%', align: 'center' as const },
+    { key: 'category', label: '分类', width: '5%', align: 'center' as const },
+  ]
+
+  return (
+    <div style={{ padding: '20px 24px' }}>
+      {/* 页面头部 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <button
+          onClick={() => onNavigate({ name: 'dashboard' })}
+          style={{
+            background: '#f5f5f5', border: 'none', borderRadius: 8,
+            padding: '6px 14px', cursor: 'pointer', fontSize: 13, color: '#666',
+          }}
+        >
+          ← 返回
+        </button>
+        <div style={{ fontSize: 18, fontWeight: 700, color: '#1a1a2e' }}>
+          2200000投诉积压清单
+        </div>
+        <span style={{
+          display: 'inline-block', padding: '2px 10px', borderRadius: 10,
+          background: '#f0fdf4', color: '#16a34a', fontSize: 12, fontWeight: 600,
+        }}>
+          横山
+        </span>
+        <span style={{ fontSize: 12, color: '#999', marginLeft: 'auto' }}>
+          共 {total} 条记录
+        </span>
+      </div>
+
+      {/* 表格区域 - 可横向滚动 */}
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 60, color: '#bbb' }}>加载中...</div>
+      ) : records.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 60, color: '#bbb' }}>暂无数据</div>
+      ) : (
+        <div style={{
+          overflowX: 'auto',
+          border: '1px solid #e5e7eb',
+          borderRadius: 8,
+          background: '#fff',
+          WebkitOverflowScrolling: 'touch',
+        }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%', tableLayout: 'fixed' }}>
+            <thead>
+              <tr style={{ background: '#f9fafb' }}>
+                {columns.map(col => (
+                  <th key={col.key} style={{
+                    padding: '10px 10px', fontSize: 12, fontWeight: 600, color: '#374151',
+                    borderBottom: '2px solid #e5e7eb', textAlign: col.align,
+                    width: col.width, position: 'sticky', top: 0, background: '#f9fafb', zIndex: 1,
+                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                  }}>
+                    {col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((rec, idx) => (
+                <tr key={rec.id} style={{ background: idx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                  {columns.map(col => {
+                    const val = (rec as any)[col.key] || ''
+                    const isAddress = col.key === 'construction_address'
+
+                    // 重点标注：是否重要客户=是 → 红色标签
+                    const isImportant = col.key === 'is_important_customer' && val === '是'
+                    // 分类颜色区分：往月=红色标签，在途=绿色标签
+                    const isPrevMonth = col.key === 'category' && val === '往月'
+                    const isInTransit = col.key === 'category' && val === '在途'
+
+                    const cellStyle: React.CSSProperties = {
+                      padding: '6px 10px', fontSize: 12, color: '#374151',
+                      borderBottom: '1px solid #f0f0f0',
+                      width: col.width,
+                      textAlign: col.align,
+                      lineHeight: 1.5,
+                      whiteSpace: isAddress ? 'normal' : 'nowrap',
+                      overflow: isAddress ? 'hidden' : 'hidden',
+                      textOverflow: isAddress ? undefined : 'ellipsis',
+                      wordBreak: 'break-all',
+                    }
+
+                    let cellContent: React.ReactNode
+                    if (isAddress) {
+                      cellContent = (
+                        <div style={{ lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', wordBreak: 'break-all' }}>
+                          {val}
+                        </div>
+                      )
+                    } else if (isImportant) {
+                      cellContent = (
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          border: '1px solid #fca5a5',
+                          background: '#fef2f2',
+                          color: '#b91c1c',
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}>{val}</span>
+                      )
+                    } else if (isPrevMonth) {
+                      cellContent = (
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          border: '1px solid #fca5a5',
+                          background: '#fef2f2',
+                          color: '#b91c1c',
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}>{val}</span>
+                      )
+                    } else if (isInTransit) {
+                      cellContent = (
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          border: '1px solid #86efac',
+                          background: '#f0fdf4',
+                          color: '#15803d',
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}>{val}</span>
+                      )
+                    } else {
+                      cellContent = <span>{val}</span>
+                    }
+
+                    return (
+                      <td key={col.key} style={cellStyle}>
+                        {cellContent}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 分页 */}
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16, alignItems: 'center' }}>
+          <button
+            disabled={page <= 1}
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            style={{
+              padding: '4px 12px', borderRadius: 6, border: '1px solid #d1d5db',
+              background: page <= 1 ? '#f5f5f5' : '#fff', cursor: page <= 1 ? 'not-allowed' : 'pointer',
+            }}
+          >上一页</button>
+          <span style={{ fontSize: 13, color: '#666' }}>{page} / {totalPages}</span>
+          <button
+            disabled={page >= totalPages}
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            style={{
+              padding: '4px 12px', borderRadius: 6, border: '1px solid #d1d5db',
+              background: page >= totalPages ? '#f5f5f5' : '#fff', cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+            }}
+          >下一页</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function Dashboard({ onNavigate, initialPage }: { onNavigate: (p: Page) => void; initialPage?: string }) {
   // 如果指定了initialPage且是10086投诉积压详情页，直接展示详情页
   if (initialPage === 'complaint-10086-detail') {
     return <Complaint10086DetailPage onNavigate={onNavigate} />
+  }
+  // 2200000及时率通报详情页
+  if (initialPage === 'complaint-2200000-detail') {
+    return <Complaint2200000DetailPage onNavigate={onNavigate} />
   }
 
   return (
