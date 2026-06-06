@@ -235,3 +235,24 @@ class FiveCategoryWithdrawalDetail(Base):
     specific_reason = Column(Text, comment="具体原因")
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+# ── 宽带在途投诉清单专用模型 ──
+
+class ComplaintBacklogSummary(Base):
+    """宽带在途投诉清单 - 横山在途投诉汇总指标（来自"到县区"sheet）
+    包含：10086积压、全球通积压、2200000积压、86线下积压、合计、前一日积压量、环比
+    """
+    __tablename__ = "complaint_backlog_summary"
+
+    id = Column(BigInteger, primary_key=True)
+    report_date = Column(String(50), comment="通报日期，如 2026-06-04")
+    district = Column(String(50), default="横山", comment="区县")
+    backlog_10086 = Column(String(50), comment="10086积压")
+    backlog_global = Column(String(50), comment="全球通积压")
+    backlog_2200000 = Column(String(50), comment="2200000积压")
+    backlog_86_offline = Column(String(50), comment="86线下积压")
+    total_backlog = Column(String(50), comment="合计")
+    previous_day_backlog = Column(String(50), comment="前一日积压量")
+    ratio = Column(String(50), comment="环比")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

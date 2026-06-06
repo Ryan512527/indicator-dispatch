@@ -512,3 +512,25 @@ async def five_category_withdrawal_reparse(
     from app.services.report_scanner import reparse_five_category_withdrawal
     result = await reparse_five_category_withdrawal(db, directory)
     return {"report_type": "五类工单撤撤单情况", **result}
+
+
+# ── 宽带在途投诉清单横山专用 API ──
+
+@router.get("/reports/complaint-backlog/summary")
+async def complaint_backlog_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取宽带在途投诉清单横山卡片指标（10086积压、全球通积压、2200000积压、86线下积压、合计、前一日积压量、环比）"""
+    from app.services.report_scanner import get_complaint_backlog_summary
+    return await get_complaint_backlog_summary(db)
+
+
+@router.post("/reports/complaint-backlog/reparse")
+async def complaint_backlog_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析宽带在途投诉清单文件，提取横山在途投诉汇总数据"""
+    from app.services.report_scanner import reparse_complaint_backlog
+    result = await reparse_complaint_backlog(db, directory)
+    return {"report_type": "宽带在途投诉清单", **result}

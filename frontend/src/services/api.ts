@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -222,6 +222,16 @@ export const api = {
 
   reparseFiveCategoryWithdrawal: async () => {
     const res = await fetch(`${BASE}/reports/five-category-withdrawal/reparse`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
+    return res.json();
+  },
+
+  // ── 宽带在途投诉清单横山专用 APIs ──
+  getComplaintBacklogSummary: () =>
+    fetchJson<ComplaintBacklogSummary>('/reports/complaint-backlog/summary'),
+
+  reparseComplaintBacklog: async () => {
+    const res = await fetch(`${BASE}/reports/complaint-backlog/reparse`, { method: 'POST' });
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
     return res.json();
   },

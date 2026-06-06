@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -1208,6 +1208,164 @@ function FiveCategoryWithdrawalCard({ color, onNavigate }: { color: string; onNa
   )
 }
 
+// ── 宽带在途投诉清单专用卡片 ──
+function ComplaintBacklogCard({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<ComplaintBacklogSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getComplaintBacklogSummary()
+      .then(data => setSummary(data as ComplaintBacklogSummary))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '16px 20px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        display: 'flex', flexDirection: 'column',
+        minHeight: 200,
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', marginBottom: 10 }}>宽带在途投诉清单</div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 12 }}>
+          加载中...
+        </div>
+      </div>
+    )
+  }
+
+  const reportDate = summary?.report_date || ''
+  const totalBacklog = summary?.total_backlog || '—'
+  const backlog10086 = summary?.backlog_10086 || '—'
+  const backlogGlobal = summary?.backlog_global || '—'
+  const backlog2200000 = summary?.backlog_2200000 || '—'
+  const backlog86Offline = summary?.backlog_86_offline || '—'
+  const previousDayBacklog = summary?.previous_day_backlog || '—'
+  const ratio = summary?.ratio || '—'
+
+  return (
+    <div
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        cursor: 'pointer',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        transition: 'transform 0.15s, box-shadow 0.15s',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'
+      }}
+    >
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>宽带在途投诉清单</div>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 10,
+            background: '#fef2f2',
+            color: '#ef4444',
+            fontSize: 11,
+            fontWeight: 600,
+          }}>
+            横山
+          </span>
+        </div>
+        <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
+          {reportDate || '—'}
+        </span>
+      </div>
+
+      {/* 合计 */}
+      <div style={{ textAlign: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 42, fontWeight: 700, color: totalBacklog !== '—' && parseInt(totalBacklog) > 0 ? '#ef4444' : '#22c55e', lineHeight: 1.1 }}>
+          {totalBacklog}
+        </div>
+        <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+          当前在途投诉合计
+        </div>
+      </div>
+
+      {/* 各渠道积压量 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, marginBottom: 10 }}>
+        {[
+          { label: '10086积压', value: backlog10086, key: '10086' },
+          { label: '全球通积压', value: backlogGlobal, key: 'global' },
+          { label: '2200000积压', value: backlog2200000, key: '2200000' },
+          { label: '86线下积压', value: backlog86Offline, key: '86_offline' },
+        ].map(item => (
+          <div key={item.key} style={{
+            textAlign: 'center',
+            background: '#fafafa',
+            borderRadius: 6,
+            padding: '6px 4px',
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#374151', lineHeight: 1.2 }}>
+              {item.value}
+            </div>
+            <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+              {item.label}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 前一日积压量和环比 */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        <div style={{
+          flex: 1,
+          background: '#f0fdf4',
+          borderRadius: 6,
+          padding: '6px 8px',
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#16a34a', lineHeight: 1.2 }}>
+            {previousDayBacklog}
+          </div>
+          <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+            前一日积压量
+          </div>
+        </div>
+        <div style={{
+          flex: 1,
+          background: '#fef2f2',
+          borderRadius: 6,
+          padding: '6px 8px',
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: ratio !== '—' && ratio !== '' && parseFloat(ratio) > 0 ? '#ef4444' : '#22c55e', lineHeight: 1.2 }}>
+            {ratio}
+          </div>
+          <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+            环比
+          </div>
+        </div>
+      </div>
+
+      {/* 底部信息 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>📄 {reportDate ? `通报 ${reportDate}` : '—'}</span>
+          <span>点击重新解析 →</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 分类报表看板 ──
 function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [reportTypes, setReportTypes] = useState<ReportType[]>([])
@@ -1300,6 +1458,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 // 五类工单退撤单情况用专用卡片
                 if (rt.name === '五类工单退撤单情况') {
                   return <FiveCategoryWithdrawalCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
+                // 宽带在途投诉清单用专用卡片
+                if (rt.name === '宽带在途投诉清单') {
+                  return <ComplaintBacklogCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
                 return <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
               })}
