@@ -4327,10 +4327,14 @@ async def get_complaint_2200000_details(
 # ── 线下派单处理情况 ──
 
 def _parse_offline_dispatch_files(directory: str) -> dict:
-    """解析线下派单处理情况报表（只读取"通报"sheet中横山区的数字）"""
+    """解析线下派单处理情况报表
+    - 月派单量：从"通报"sheet读取（=累计在途+归档量，不受NOW()影响）
+    - 超时积压/未超时积压/累计在途/预警4h超时：从"累计在途需处理（自接）"sheet实时计算
+      （避免col7=是否超时、col2=预警时限等含NOW()公式的缓存值过时）
+    """
     import re as _re
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
 
-    # 查找最新的线下派单处理情况文件（按修改时间排序）
     pattern = os.path.join(directory, "**", "*线下派单处理情况*")
     files = glob.glob(pattern, recursive=True)
     if not files:
@@ -4340,13 +4344,14 @@ def _parse_offline_dispatch_files(directory: str) -> dict:
     filename = os.path.basename(latest_file)
 
     wb = openpyxl.load_workbook(latest_file, data_only=True)
+
     if "通报" not in wb.sheetnames:
         logger.warning(f"线下派单处理情况: 文件 {filename} 缺少'通报'sheet")
         return {"summary": None, "report_date": "", "filename": filename}
 
     ws = wb["通报"]
 
-    # 提取通报日期（从Row 1标题，如"线下派单处理情况（装维调度） 截止6月5日   17:10"）
+    # 提取通报日期
     report_date = ""
     title_cell = ws.cell(row=1, column=1).value
     if title_cell:
@@ -4367,21 +4372,114 @@ def _parse_offline_dispatch_files(directory: str) -> dict:
         logger.warning(f"线下派单处理情况: 未找到横山区数据")
         return {"summary": None, "report_date": report_date, "filename": filename}
 
-    # 提取5个指标
+    # 月派单量：从通报sheet读取（=累计在途+归档量，不受NOW()影响）
     def _val(r, c):
         v = ws.cell(row=r, column=c).value
         return str(v) if v is not None else ""
 
+    monthly_dispatch = _val(hengshan_row, 5)
+
+    # ── 实时计算：超时积压/未超时积压/累计在途/预警4h超时 ──
+    # 从"累计在途需处理（自接）"sheet实时计算
+    # Excel公式链：
+    #   col20 = 客服受理时间（固定值）
+    #   col5  = 超时时限 = 客服受理时间 + 1天
+    #   col8  = 48h超时时限 = 客服受理时间 + 2天
+    #   col6  = 当前时间 = NOW()（公式，缓存值过时）
+    #   col7  = 是否超时(24h) = IF(col6>col5,"是","否")（公式，缓存值过时）
+    #   col2  = 预警超时时限 = (col8-col6)*24（公式，缓存值过时）
+    # 通报sheet：
+    #   超时积压 = COUNTIFS(区县=横山, col7="是", col72="装维调度系统")
+    #   未超时积压 = COUNTIFS(区县=横山, col7="否", col72="装维调度系统")
+    #   预警4h超时 = COUNTIFS(区县=横山, col2>=0, col2<4)
+    #
+    # 实时计算方式：用 客服受理时间 + timedelta(days=1) vs datetime.now() 判断超时
+    overdue_backlog = ""
+    not_overdue_backlog = ""
+    total_in_transit = ""
+    warn_4h_overdue = ""
+
+    if "累计在途需处理（自接）" in wb.sheetnames:
+        ws_detail = wb["累计在途需处理（自接）"]
+        BJ_TZ = _tz(_td(hours=8))
+        now_bj = _dt.now(BJ_TZ)
+
+        _overdue_cnt = 0
+        _not_overdue_cnt = 0
+        _warn_4h_cnt = 0
+
+        for row in range(2, ws_detail.max_row + 1):
+            district = ws_detail.cell(row=row, column=16).value
+            if not district or district_filter not in str(district):
+                continue
+            source = ws_detail.cell(row=row, column=72).value
+            if source != "装维调度系统":
+                continue
+
+            # 客服受理时间 (col20)
+            accept_time_raw = ws_detail.cell(row=row, column=20).value
+            if accept_time_raw is None:
+                continue
+
+            # 解析时间
+            if isinstance(accept_time_raw, _dt):
+                accept_time = accept_time_raw
+            elif isinstance(accept_time_raw, str):
+                try:
+                    accept_time = _dt.strptime(accept_time_raw, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    try:
+                        accept_time = _dt.strptime(accept_time_raw, "%Y-%m-%d %H:%M")
+                    except ValueError:
+                        continue
+            else:
+                continue
+
+            if accept_time.tzinfo is None:
+                accept_time = accept_time.replace(tzinfo=BJ_TZ)
+
+            # 24h超时判断：超时时限 = 受理时间 + 1天
+            deadline_24h = accept_time + _td(days=1)
+            is_overdue_24h = now_bj > deadline_24h
+
+            if is_overdue_24h:
+                _overdue_cnt += 1
+            else:
+                _not_overdue_cnt += 1
+
+            # 预警4h超时：距离48h时限不到4小时且未超48h
+            deadline_48h = accept_time + _td(days=2)
+            hours_to_48h = (deadline_48h - now_bj).total_seconds() / 3600
+            if 0 <= hours_to_48h < 4:
+                _warn_4h_cnt += 1
+
+        overdue_backlog = str(_overdue_cnt)
+        not_overdue_backlog = str(_not_overdue_cnt)
+        total_in_transit = str(_overdue_cnt + _not_overdue_cnt)
+        warn_4h_overdue = str(_warn_4h_cnt)
+        logger.info(
+            f"线下派单实时计算: 超时={_overdue_cnt}, 未超时={_not_overdue_cnt}, "
+            f"累计={total_in_transit}, 预警4h={_warn_4h_cnt}"
+        )
+    else:
+        # fallback：用通报sheet的缓存值
+        logger.warning("线下派单: 缺少'累计在途需处理（自接）'sheet，使用通报sheet缓存值")
+        overdue_backlog = _val(hengshan_row, 6)
+        not_overdue_backlog = _val(hengshan_row, 7)
+        total_in_transit = _val(hengshan_row, 8)
+        warn_4h_overdue = _val(hengshan_row, 10)
+
     summary = {
         "district": district_filter,
-        "monthly_dispatch": _val(hengshan_row, 5),       # [5] 月派单量
-        "overdue_backlog": _val(hengshan_row, 6),         # [6] 超时积压
-        "not_overdue_backlog": _val(hengshan_row, 7),     # [7] 未超时积压
-        "total_in_transit": _val(hengshan_row, 8),        # [8] 累计在途
-        "warn_4h_overdue": _val(hengshan_row, 10),        # [10] 预警4小时超时
+        "monthly_dispatch": monthly_dispatch,
+        "overdue_backlog": overdue_backlog,
+        "not_overdue_backlog": not_overdue_backlog,
+        "total_in_transit": total_in_transit,
+        "warn_4h_overdue": warn_4h_overdue,
     }
 
     logger.info(f"线下派单处理情况: 解析完成, report_date={report_date}, summary={summary}")
+    wb.close()
     return {"summary": summary, "report_date": report_date, "filename": filename}
 
 
