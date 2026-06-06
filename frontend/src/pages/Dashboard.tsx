@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -1366,6 +1366,304 @@ function ComplaintBacklogCard({ color, onNavigate }: { color: string; onNavigate
   )
 }
 
+// ── 10086投诉积压(督办)专用卡片 ──
+function Complaint10086Card({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<Complaint10086Summary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getComplaint10086Summary()
+      .then(data => setSummary(data as Complaint10086Summary))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '16px 20px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        display: 'flex', flexDirection: 'column',
+        minHeight: 200,
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', marginBottom: 10 }}>10086投诉积压(督办)</div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 12 }}>
+          加载中...
+        </div>
+      </div>
+    )
+  }
+
+  const reportDate = summary?.report_date || ''
+  const totalBacklog = summary?.total_backlog || '—'
+  const totalNotOverdue = summary?.total_not_overdue || '—'
+  const todayNeedProcess = summary?.today_need_process || '—'
+  const broadbandBusiness = summary?.broadband_business || '—'
+  const totalOverdue = summary?.total_overdue || '—'
+
+  return (
+    <div
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        cursor: 'pointer',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        transition: 'transform 0.15s, box-shadow 0.15s',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+      onClick={() => onNavigate({ name: 'complaint-10086-detail' })}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'
+      }}
+    >
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>10086投诉积压(督办)</div>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 10,
+            background: '#fef2f2',
+            color: '#ef4444',
+            fontSize: 11,
+            fontWeight: 600,
+          }}>
+            横山
+          </span>
+        </div>
+        <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
+          {reportDate || '—'}
+        </span>
+      </div>
+
+      {/* 合计积压 - 主指标 */}
+      <div style={{ textAlign: 'center', marginBottom: 12 }}>
+        <div style={{ fontSize: 42, fontWeight: 700, color: totalBacklog !== '—' && parseInt(totalBacklog) > 0 ? '#ef4444' : '#22c55e', lineHeight: 1.1 }}>
+          {totalBacklog}
+        </div>
+        <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
+          合计积压
+        </div>
+      </div>
+
+      {/* 未超时 + 超时 指标 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, marginBottom: 10 }}>
+        <div style={{ textAlign: 'center', background: '#f0fdf4', borderRadius: 6, padding: '6px 4px' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#16a34a', lineHeight: 1.2 }}>{totalNotOverdue}</div>
+          <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>合计未超时积压</div>
+        </div>
+        <div style={{ textAlign: 'center', background: '#fef2f2', borderRadius: 6, padding: '6px 4px' }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#ef4444', lineHeight: 1.2 }}>{totalOverdue}</div>
+          <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>合计超时积压</div>
+        </div>
+      </div>
+
+      {/* 今日需处理量 + 家宽业务 */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        <div style={{ flex: 1, background: '#eff6ff', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#2563eb', lineHeight: 1.2 }}>{todayNeedProcess}</div>
+          <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>今日需处理量</div>
+        </div>
+        <div style={{ flex: 1, background: '#fefce8', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#ca8a04', lineHeight: 1.2 }}>{broadbandBusiness}</div>
+          <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>家宽业务</div>
+        </div>
+      </div>
+
+      {/* 底部信息 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>📄 {reportDate ? `通报 ${reportDate}` : '—'}</span>
+          <span>点击查看清单 →</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 10086投诉积压清单详情页 ──
+function Complaint10086DetailPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
+  const [records, setRecords] = useState<Complaint10086DetailRecord[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const pageSize = 50
+
+  useEffect(() => {
+    setLoading(true)
+    api.getComplaint10086Details(page, pageSize)
+      .then(data => {
+        setRecords((data as any).records as Complaint10086DetailRecord[])
+        setTotal((data as any).total as number)
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [page])
+
+  const totalPages = Math.ceil(total / pageSize)
+
+  const columns = [
+    { key: 'district', label: '所属区县', width: 70 },
+    { key: 'timeout_deadline', label: '超时时限', width: 130 },
+    { key: 'broadband_account', label: '宽带帐号', width: 110 },
+    { key: 'global_access', label: '全球通属性', width: 90 },
+    { key: 'customer_contact', label: '客户联系方式', width: 110 },
+    { key: 'customer_urge_count', label: '催单次数', width: 60 },
+    { key: 'community_name', label: '小区名称', width: 180 },
+    { key: 'handler_name', label: '处理人姓名', width: 80 },
+    { key: 'is_door_service', label: '是否上门', width: 60 },
+    { key: 'complaint_category5', label: '投诉分类5级', width: 120 },
+    { key: 'reply_content', label: '回复内容', width: 260 },
+  ]
+
+  return (
+    <div style={{ padding: '20px 24px', maxWidth: 1200, margin: '0 auto' }}>
+      {/* 页面头部 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <button
+          onClick={() => onNavigate({ name: 'dashboard' })}
+          style={{
+            background: '#f5f5f5', border: 'none', borderRadius: 8,
+            padding: '6px 14px', cursor: 'pointer', fontSize: 13, color: '#666',
+          }}
+        >
+          ← 返回
+        </button>
+        <div style={{ fontSize: 18, fontWeight: 700, color: '#1a1a2e' }}>
+          10086投诉积压清单
+        </div>
+        <span style={{
+          display: 'inline-block', padding: '2px 10px', borderRadius: 10,
+          background: '#fef2f2', color: '#ef4444', fontSize: 12, fontWeight: 600,
+        }}>
+          横山
+        </span>
+        <span style={{ fontSize: 12, color: '#999', marginLeft: 'auto' }}>
+          共 {total} 条记录
+        </span>
+      </div>
+
+      {/* 表格区域 - 可横向滚动 */}
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: 60, color: '#bbb' }}>加载中...</div>
+      ) : records.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: 60, color: '#bbb' }}>暂无数据</div>
+      ) : (
+        <div style={{
+          overflowX: 'auto',
+          border: '1px solid #e5e7eb',
+          borderRadius: 8,
+          background: '#fff',
+          WebkitOverflowScrolling: 'touch',
+        }}>
+          <table style={{ borderCollapse: 'collapse', minWidth: 1200 }}>
+            <thead>
+              <tr style={{ background: '#f9fafb' }}>
+                <th style={{
+                  padding: '10px 12px', fontSize: 12, fontWeight: 600, color: '#374151',
+                  borderBottom: '2px solid #e5e7eb', textAlign: 'left', whiteSpace: 'nowrap',
+                  position: 'sticky', top: 0, background: '#f9fafb', zIndex: 1,
+                }}>
+                  #
+                </th>
+                {columns.map(col => (
+                  <th key={col.key} style={{
+                    padding: '10px 12px', fontSize: 12, fontWeight: 600, color: '#374151',
+                    borderBottom: '2px solid #e5e7eb', textAlign: 'left', whiteSpace: 'nowrap',
+                    position: 'sticky', top: 0, background: '#f9fafb', zIndex: 1,
+                    minWidth: col.width,
+                  }}>
+                    {col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {records.map((rec, idx) => (
+                <tr key={rec.id} style={{
+                  background: idx % 2 === 0 ? '#fff' : '#fafbfc',
+                  borderBottom: '1px solid #f0f0f0',
+                }}>
+                  <td style={{
+                    padding: '8px 12px', fontSize: 12, color: '#999',
+                    borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap',
+                  }}>
+                    {(page - 1) * pageSize + idx + 1}
+                  </td>
+                  {columns.map(col => {
+                    const val = (rec as any)[col.key] || ''
+                    const isLongText = val.length > 20
+                    const isNotDoor = col.key === 'is_door_service' && val === '否'
+                    const textColor = isNotDoor ? '#ef4444' : '#374151'
+                    return (
+                      <td key={col.key} style={{
+                        padding: '8px 12px', fontSize: 12, color: textColor,
+                        borderBottom: '1px solid #f0f0f0',
+                        maxWidth: col.width + 40,
+                        minWidth: col.width,
+                        lineHeight: 1.5,
+                        overflow: 'hidden',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 4,
+                        WebkitBoxOrient: 'vertical',
+                        whiteSpace: isLongText ? 'normal' : 'nowrap',
+                        wordBreak: 'break-all',
+                      }}>
+                        {val}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* 分页 */}
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginTop: 16 }}>
+          <button
+            disabled={page <= 1}
+            onClick={() => setPage(p => p - 1)}
+            style={{
+              padding: '6px 14px', border: '1px solid #ddd', borderRadius: 6,
+              background: page <= 1 ? '#f5f5f5' : '#fff', cursor: page <= 1 ? 'not-allowed' : 'pointer',
+              fontSize: 12, color: page <= 1 ? '#ccc' : '#333',
+            }}
+          >
+            上一页
+          </button>
+          <span style={{ fontSize: 12, color: '#666' }}>
+            {page} / {totalPages}
+          </span>
+          <button
+            disabled={page >= totalPages}
+            onClick={() => setPage(p => p + 1)}
+            style={{
+              padding: '6px 14px', border: '1px solid #ddd', borderRadius: 6,
+              background: page >= totalPages ? '#f5f5f5' : '#fff', cursor: page >= totalPages ? 'not-allowed' : 'pointer',
+              fontSize: 12, color: page >= totalPages ? '#ccc' : '#333',
+            }}
+          >
+            下一页
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── 分类报表看板 ──
 function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
   const [reportTypes, setReportTypes] = useState<ReportType[]>([])
@@ -1463,6 +1761,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 if (rt.name === '宽带在途投诉清单') {
                   return <ComplaintBacklogCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
+                // 10086投诉积压(督办)用专用卡片
+                if (rt.name === '10086投诉积压(督办)') {
+                  return <Complaint10086Card key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
                 return <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
               })}
             </div>
@@ -1507,7 +1809,12 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
   )
 }
 
-export function Dashboard({ onNavigate }: { onNavigate: (p: Page) => void }) {
+export function Dashboard({ onNavigate, initialPage }: { onNavigate: (p: Page) => void; initialPage?: string }) {
+  // 如果指定了initialPage且是10086投诉积压详情页，直接展示详情页
+  if (initialPage === 'complaint-10086-detail') {
+    return <Complaint10086DetailPage onNavigate={onNavigate} />
+  }
+
   return (
     <div>
       <h2 style={{ fontSize: 22, fontWeight: 600, marginBottom: 24 }}>横山网络指标通报</h2>

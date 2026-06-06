@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -232,6 +232,27 @@ export const api = {
 
   reparseComplaintBacklog: async () => {
     const res = await fetch(`${BASE}/reports/complaint-backlog/reparse`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
+    return res.json();
+  },
+
+  // ── 10086投诉积压(督办)横山专用 APIs ──
+  getComplaint10086Summary: () =>
+    fetchJson<Complaint10086Summary>('/reports/complaint-10086/summary'),
+
+  getComplaint10086Details: (page = 1, pageSize = 50) =>
+    fetchJson<{
+      records: Complaint10086DetailRecord[];
+      total: number;
+      page: number;
+      page_size: number;
+    }>('/reports/complaint-10086/detail', {
+      page: String(page),
+      page_size: String(pageSize),
+    }),
+
+  reparseComplaint10086: async () => {
+    const res = await fetch(`${BASE}/reports/complaint-10086/reparse`, { method: 'POST' });
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
     return res.json();
   },

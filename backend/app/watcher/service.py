@@ -14,6 +14,7 @@ SUPPORTED_EXTENSIONS = {".csv", ".json", ".xlsx", ".xls", ".xml"}
 # key: 文件名匹配关键词  →  value: 专用 reparse API 路径段
 SPECIALIZED_REPORTS = [
     ("宽带在途投诉",   "complaint-backlog"),
+    ("投诉积压通报新", "complaint-10086"),
     ("五类工单退撤单", "five-category-withdrawal"),
     ("装维工作量",     "city-workload"),
     ("无线退服",       "wireless-outage"),

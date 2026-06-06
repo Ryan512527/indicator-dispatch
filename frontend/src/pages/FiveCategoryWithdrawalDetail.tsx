@@ -25,7 +25,10 @@ export function FiveCategoryWithdrawalDetail({ onBack }: { onBack: () => void })
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
-  const [summary, setSummary] = useState<FiveCategoryWithdrawalSummary>({})
+  const [summary, setSummary] = useState<FiveCategoryWithdrawalSummary>({
+    district: '', day_withdrawal_total: '', day_reinstall_total: '',
+    month_withdrawal_total: '', month_reinstall_total: '', report_date: '',
+  })
   const pageSize = 50
 
   useEffect(() => {

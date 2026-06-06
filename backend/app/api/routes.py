@@ -534,3 +534,36 @@ async def complaint_backlog_reparse(
     from app.services.report_scanner import reparse_complaint_backlog
     result = await reparse_complaint_backlog(db, directory)
     return {"report_type": "宽带在途投诉清单", **result}
+
+
+# ── 10086投诉积压(督办)横山专用 API ──
+
+@router.get("/reports/complaint-10086/summary")
+async def complaint_10086_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取10086投诉积压(督办)横山卡片指标（合计未超时积压、今日需处理量、家宽业务、合计超时积压、合计积压）"""
+    from app.services.report_scanner import get_complaint_10086_summary
+    return await get_complaint_10086_summary(db)
+
+
+@router.get("/reports/complaint-10086/detail")
+async def complaint_10086_detail(
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """分页获取10086投诉积压(督办)横山10086积压清单明细"""
+    from app.services.report_scanner import get_complaint_10086_details
+    return await get_complaint_10086_details(db, page, page_size)
+
+
+@router.post("/reports/complaint-10086/reparse")
+async def complaint_10086_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析10086投诉积压(督办)文件，提取横山汇总+明细数据"""
+    from app.services.report_scanner import reparse_complaint_10086
+    result = await reparse_complaint_10086(db, directory)
+    return {"report_type": "10086投诉积压(督办)", **result}

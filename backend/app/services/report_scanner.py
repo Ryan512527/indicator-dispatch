@@ -3435,3 +3435,374 @@ async def get_complaint_backlog_summary(db: AsyncSession) -> dict:
         "ratio": row.ratio,
         "report_date": row.report_date,
     }
+
+
+# ── 10086投诉积压(督办)专用处理 ──
+
+COMPLAINT_10086_SUMMARY_FIELDS = [
+    "合计未超时积压", "今日需处理量", "家宽业务", "合计超时积压", "合计积压",
+]
+
+COMPLAINT_10086_DETAIL_FIELDS = [
+    "所属区县", "超时时限", "宽带帐号", "全球通属性", "客户联系方式",
+    "客户催单次数", "小区名称", "处理人姓名", "是否上门服务",
+    "投诉分类5级", "回复内容",
+]
+
+
+def _parse_complaint_10086_files(directory: str) -> dict:
+    """
+    解析最新的"投诉积压通报新"文件：
+    1. 从"表"sheet 提取横山汇总指标
+    2. 从"10086积压清单"sheet 提取横山明细数据
+    """
+    from datetime import datetime as _dt
+
+    matching: list[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("~$") or f.startswith("."):
+                continue
+            if "投诉积压通报新" in f and f.lower().endswith((".xlsx", ".xls")):
+                matching.append(os.path.join(root, f))
+
+    if not matching:
+        return {"summary": None, "details": [], "filename": None, "report_date": None}
+
+    matching.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+    latest_file = matching[0]
+    filename = os.path.basename(latest_file)
+
+    # 尝试从文件名提取日期
+    report_date = None
+    date_match = re.search(r'(\d{1,2})\.(\d{1,2})', filename)
+    if date_match:
+        now_year = _dt.now().year
+        report_date = f"{now_year}-{date_match.group(1).zfill(2)}-{date_match.group(2).zfill(2)}"
+    else:
+        report_date = _dt.now().strftime("%Y-%m-%d")
+
+    try:
+        wb = openpyxl.load_workbook(latest_file, read_only=True, data_only=True)
+
+        # ── 解析"表"sheet ──
+        summary = None
+        if "表" in wb.sheetnames:
+            ws = wb["表"]
+            rows_data = list(ws.iter_rows(values_only=True))
+
+            # 找到包含"合计未超时积压"的子表头行
+            header_row_idx = None
+            header_row = None
+            for idx, row in enumerate(rows_data):
+                row_text = " ".join(str(c) for c in row if c)
+                if "合计未超时积压" in row_text:
+                    header_row_idx = idx
+                    header_row = row
+                    break
+
+            if header_row_idx is not None:
+                col_map: dict[str, int] = {}
+                target_fields = ["区县", "县区", "合计未超时积压", "今日需处理量", "家宽业务", "合计超时积压", "合计积压"]
+
+                for target in target_fields:
+                    for idx2, cell in enumerate(header_row):
+                        if cell and target in str(cell).strip():
+                            col_map[target] = idx2
+                            break
+
+                # 扫描上一行补全（合并表头）
+                if header_row_idx > 0:
+                    parent_header = rows_data[header_row_idx - 1]
+                    for target in target_fields:
+                        if target not in col_map:
+                            for idx2, cell in enumerate(parent_header):
+                                if cell and target in str(cell).strip():
+                                    col_map[target] = idx2
+                                    break
+
+                # 再上上行
+                if header_row_idx > 1:
+                    grand_header = rows_data[header_row_idx - 2]
+                    for target in target_fields:
+                        if target not in col_map:
+                            for idx2, cell in enumerate(grand_header):
+                                if cell and target in str(cell).strip():
+                                    col_map[target] = idx2
+                                    break
+
+                # 查找横山行
+                for row in rows_data[header_row_idx + 1:]:
+                    if not row or len(row) <= 1:
+                        continue
+                    district_val = ""
+                    for key in ["区县", "县区"]:
+                        if key in col_map and col_map[key] < len(row) and row[col_map[key]]:
+                            district_val = str(row[col_map[key]]).strip()
+                            if district_val:
+                                break
+
+                    if district_val in ("横山", "横山县"):
+                        def _safe_str(key: str) -> str:
+                            idx2 = col_map.get(key)
+                            if idx2 is not None and idx2 < len(row) and row[idx2] is not None:
+                                val = row[idx2]
+                                if isinstance(val, (int, float)):
+                                    return str(int(val)) if isinstance(val, int) or val == int(val) else str(val)
+                                return str(val).strip()
+                            return ""
+
+                        summary = {
+                            "district": "横山",
+                            "total_not_overdue": _safe_str("合计未超时积压"),
+                            "today_need_process": _safe_str("今日需处理量"),
+                            "broadband_business": _safe_str("家宽业务"),
+                            "total_overdue": _safe_str("合计超时积压"),
+                            "total_backlog": _safe_str("合计积压"),
+                        }
+                        break
+
+        # ── 解析"10086积压清单"sheet ──
+        details: list[dict] = []
+        if "10086积压清单" in wb.sheetnames:
+            ws2 = wb["10086积压清单"]
+            rows2 = list(ws2.iter_rows(values_only=True))
+
+            if len(rows2) >= 2:
+                header2 = rows2[0]
+                # 建立列映射
+                col_map2: dict[str, int] = {}
+                detail_fields = ["所属区县", "超时时限", "宽带帐号", "全球通属性",
+                                 "客户联系方式", "客户催单次数", "小区名称",
+                                 "处理人姓名", "是否上门服务", "投诉分类5级", "回复内容"]
+
+                for target in detail_fields:
+                    for idx2, cell in enumerate(header2):
+                        if cell and target in str(cell).strip():
+                            col_map2[target] = idx2
+                            break
+
+                # 提取横山数据
+                for row in rows2[1:]:
+                    if not row or len(row) <= 2:
+                        continue
+                    district_val = ""
+                    if "所属区县" in col_map2:
+                        idx2 = col_map2["所属区县"]
+                        if idx2 < len(row) and row[idx2]:
+                            district_val = str(row[idx2]).strip()
+
+                    if district_val in ("横山", "横山县"):
+                        def _safe_str2(key: str) -> str:
+                            idx3 = col_map2.get(key)
+                            if idx3 is not None and idx3 < len(row) and row[idx3] is not None:
+                                val = row[idx3]
+                                if isinstance(val, (int, float)):
+                                    return str(int(val)) if isinstance(val, int) or val == int(val) else str(val)
+                                return str(val).strip()
+                            return ""
+
+                        details.append({
+                            "district": "横山",
+                            "timeout_deadline": _safe_str2("超时时限"),
+                            "broadband_account": _safe_str2("宽带帐号"),
+                            "global_access": _safe_str2("全球通属性"),
+                            "customer_contact": _safe_str2("客户联系方式"),
+                            "customer_urge_count": _safe_str2("客户催单次数"),
+                            "community_name": _safe_str2("小区名称"),
+                            "handler_name": _safe_str2("处理人姓名"),
+                            "is_door_service": _safe_str2("是否上门服务"),
+                            "complaint_category5": _safe_str2("投诉分类5级"),
+                            "reply_content": _safe_str2("回复内容"),
+                        })
+
+        wb.close()
+
+        if summary:
+            logger.info(f"10086投诉积压横山汇总: {filename} -> {summary}")
+        else:
+            logger.warning(f"10086投诉积压: {filename} 未找到横山汇总数据")
+        logger.info(f"10086投诉积压横山明细: {len(details)} 条")
+
+        return {
+            "summary": summary,
+            "details": details,
+            "filename": filename,
+            "report_date": report_date,
+        }
+
+    except Exception as e:
+        logger.error(f"解析10086投诉积压失败 {filename}: {e}", exc_info=True)
+        return {"summary": None, "details": [], "filename": filename, "report_date": report_date}
+
+
+async def reparse_complaint_10086(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """
+    重新解析10086投诉积压(督办)文件，提取横山汇总+明细数据，更新数据库。
+    """
+    if directory is None:
+        directory = settings.watch_dir
+
+    result = await asyncio.to_thread(_parse_complaint_10086_files, directory)
+
+    from app.core.models import Complaint10086Summary, Complaint10086Detail
+    from sqlalchemy import delete as _delete
+
+    # 删除旧汇总+明细数据
+    await db.execute(_delete(Complaint10086Summary))
+    await db.execute(_delete(Complaint10086Detail))
+
+    summary_count = 0
+    if result["summary"]:
+        s = result["summary"]
+        cbs = Complaint10086Summary(
+            report_date=result["report_date"] or "",
+            district=s["district"],
+            total_not_overdue=s["total_not_overdue"],
+            today_need_process=s["today_need_process"],
+            broadband_business=s["broadband_business"],
+            total_overdue=s["total_overdue"],
+            total_backlog=s["total_backlog"],
+        )
+        db.add(cbs)
+        summary_count = 1
+
+    # 获取或创建报表类型
+    stmt = select(ReportType).where(ReportType.name == "10086投诉积压(督办)")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        report_type = ReportType(name="10086投诉积压(督办)", category="投诉")
+        db.add(report_type)
+        await db.flush()
+
+    # 删除旧的 report_files/report_records
+    old_files_stmt = select(ReportFile.id).where(ReportFile.report_type_id == report_type.id)
+    r2 = await db.execute(old_files_stmt)
+    old_file_ids = [row[0] for row in r2.all()]
+    if old_file_ids:
+        await db.execute(_delete(ReportRecord).where(ReportRecord.report_file_id.in_(old_file_ids)))
+        await db.execute(_delete(ReportFile).where(ReportFile.report_type_id == report_type.id))
+
+    # 创建 ReportFile
+    detail_count = 0
+    if result["filename"]:
+        report_file = ReportFile(
+            report_type_id=report_type.id,
+            filename=result["filename"] or "",
+            file_path=os.path.join(directory, result["filename"] or ""),
+            parse_status="parsed",
+            record_count=len(result["details"]),
+        )
+        db.add(report_file)
+        await db.flush()
+        detail_count = len(result["details"])
+
+        # 写入明细
+        for d in result["details"]:
+            det = Complaint10086Detail(
+                report_file_id=report_file.id,
+                district=d["district"],
+                timeout_deadline=d["timeout_deadline"],
+                broadband_account=d["broadband_account"],
+                global_access=d["global_access"],
+                customer_contact=d["customer_contact"],
+                customer_urge_count=d["customer_urge_count"],
+                community_name=d["community_name"],
+                handler_name=d["handler_name"],
+                is_door_service=d["is_door_service"],
+                complaint_category5=d["complaint_category5"],
+                reply_content=d["reply_content"],
+            )
+            db.add(det)
+
+    # 更新 column_hint
+    report_type.column_hint = COMPLAINT_10086_DETAIL_FIELDS.copy()
+    report_type.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+
+    return {
+        "summary_parsed": summary_count,
+        "detail_parsed": detail_count,
+        "filename": result["filename"],
+        "report_date": result["report_date"],
+    }
+
+
+async def get_complaint_10086_summary(db: AsyncSession) -> dict:
+    """获取10086投诉积压(督办)横山卡片指标"""
+    from app.core.models import Complaint10086Summary
+
+    stmt = select(Complaint10086Summary).order_by(Complaint10086Summary.id.desc()).limit(1)
+    r = await db.execute(stmt)
+    row = r.scalar_one_or_none()
+
+    if not row:
+        return {
+            "district": "横山",
+            "total_not_overdue": "",
+            "today_need_process": "",
+            "broadband_business": "",
+            "total_overdue": "",
+            "total_backlog": "",
+            "report_date": "",
+        }
+
+    return {
+        "district": row.district,
+        "total_not_overdue": row.total_not_overdue,
+        "today_need_process": row.today_need_process,
+        "broadband_business": row.broadband_business,
+        "total_overdue": row.total_overdue,
+        "total_backlog": row.total_backlog,
+        "report_date": row.report_date,
+    }
+
+
+async def get_complaint_10086_details(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
+    """分页获取10086投诉积压(督办)横山10086积压清单明细"""
+    from app.core.models import Complaint10086Detail
+    from sqlalchemy import func as _func
+
+    count_stmt = select(_func.count(Complaint10086Detail.id))
+    r = await db.execute(count_stmt)
+    total = r.scalar() or 0
+
+    offset = (page - 1) * page_size
+    data_stmt = (
+        select(Complaint10086Detail)
+        .order_by(Complaint10086Detail.id.asc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    r2 = await db.execute(data_stmt)
+    rows = r2.scalars().all()
+
+    records = []
+    for row in rows:
+        records.append({
+            "id": row.id,
+            "district": row.district,
+            "timeout_deadline": row.timeout_deadline,
+            "broadband_account": row.broadband_account,
+            "global_access": row.global_access,
+            "customer_contact": row.customer_contact,
+            "customer_urge_count": row.customer_urge_count,
+            "community_name": row.community_name,
+            "handler_name": row.handler_name,
+            "is_door_service": row.is_door_service,
+            "complaint_category5": row.complaint_category5,
+            "reply_content": row.reply_content,
+        })
+
+    return {
+        "records": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
