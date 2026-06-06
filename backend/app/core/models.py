@@ -98,7 +98,6 @@ class EnterpriseBroadbandBacklog(Base):
     id = Column(BigInteger, primary_key=True)
     report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=False, index=True)
     district = Column(String(50), comment="所属区县")
-    cover_scene = Column(String(50), comment="覆盖场景")
     account = Column(String(50), comment="宽带账号")
     address = Column(Text, comment="施工地址")
     worker_name = Column(String(50), comment="施工人姓名")

@@ -4,7 +4,6 @@ import type { EnterpriseBroadbandBacklogRecord } from '../types'
 
 const DISPLAY_FIELDS = [
   { key: 'district', label: '所属区县', width: '80px' },
-  { key: 'cover_scene', label: '覆盖场景', width: '100px' },
   { key: 'account', label: '宽带账号', width: '130px' },
   { key: 'address', label: '施工地址', width: '280px' },
   { key: 'worker_name', label: '施工人姓名', width: '90px' },
