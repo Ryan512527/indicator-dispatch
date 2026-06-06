@@ -3456,7 +3456,7 @@ def _parse_complaint_10086_files(directory: str) -> dict:
     1. 从"表"sheet 提取横山汇总指标
     2. 从"10086积压清单"sheet 提取横山明细数据
     """
-    from datetime import datetime as _dt
+    from datetime import datetime as _dt, timedelta
 
     matching: list[str] = []
     for root, _dirs, files in os.walk(directory):
@@ -3484,6 +3484,19 @@ def _parse_complaint_10086_files(directory: str) -> dict:
 
     try:
         wb = openpyxl.load_workbook(latest_file, read_only=True, data_only=True)
+
+        # ── 实时计算变量（不依赖缓存的NOW()）──
+        _now = _dt.now()
+        _today_day = _now.day
+        _tomorrow_day = (_now + timedelta(days=1)).day
+        _rt_overdue = 0
+        _rt_not_overdue = 0
+        _rt_total = 0
+        _rt_warn_2h = 0
+        _rt_overdue_2_4h = 0
+        _rt_today_need = 0
+        _rt_broadband = 0
+        _rt_parsed = False
 
         # ── 解析"表"sheet ──
         summary = None
@@ -3610,9 +3623,13 @@ def _parse_complaint_10086_files(directory: str) -> dict:
                 header2 = rows2[0]
                 # 建立列映射
                 col_map2: dict[str, int] = {}
-                detail_fields = ["所属区县", "超时时限", "宽带帐号", "全球通属性",
+                detail_fields = ["所属区县", "客服受理时间", "客服派单到装维时间",
+                                 "超时时限", "8小时处理时限",
+                                 "宽带帐号", "全球通属性",
                                  "客户联系方式", "客户催单次数", "小区名称",
-                                 "处理人姓名", "是否上门服务", "投诉分类5级", "回复内容"]
+                                 "处理人姓名", "是否上门服务",
+                                 "投诉分类1级", "投诉分类2级",
+                                 "投诉分类5级", "回复内容"]
 
                 for target in detail_fields:
                     for idx2, cell in enumerate(header2):
@@ -3621,6 +3638,7 @@ def _parse_complaint_10086_files(directory: str) -> dict:
                             break
 
                 # 提取横山数据
+                _rt_detail_rows = []
                 for row in rows2[1:]:
                     if not row or len(row) <= 2:
                         continue
@@ -3654,7 +3672,98 @@ def _parse_complaint_10086_files(directory: str) -> dict:
                             "reply_content": _safe_str2("回复内容"),
                         })
 
+                        # ── 收集原始datetime值用于实时计算 ──
+                        _rt_row_data = {"timeout_val": None, "eight_val": None,
+                                     "dispatch_val": None, "cat1": "", "cat2": ""}
+                        _tc = col_map2.get("超时时限")
+                        if _tc is not None and _tc < len(row) and row[_tc]:
+                            _v = row[_tc]
+                            if isinstance(_v, _dt):
+                                _rt_row_data["timeout_val"] = _v
+                            elif isinstance(_v, str):
+                                try:
+                                    _rt_row_data["timeout_val"] = _dt.strptime(_v, "%Y-%m-%d %H:%M:%S")
+                                except Exception:
+                                    pass
+                        _ec = col_map2.get("8小时处理时限")
+                        if _ec is not None and _ec < len(row) and row[_ec]:
+                            _v = row[_ec]
+                            if isinstance(_v, _dt):
+                                _rt_row_data["eight_val"] = _v
+                            elif isinstance(_v, str):
+                                try:
+                                    _rt_row_data["eight_val"] = _dt.strptime(_v, "%Y-%m-%d %H:%M:%S")
+                                except Exception:
+                                    pass
+                        _dc = col_map2.get("客服派单到装维时间")
+                        if _dc is not None and _dc < len(row) and row[_dc]:
+                            _v = row[_dc]
+                            if isinstance(_v, _dt):
+                                _rt_row_data["dispatch_val"] = _v
+                            elif isinstance(_v, str):
+                                try:
+                                    _rt_row_data["dispatch_val"] = _dt.strptime(_v, "%Y-%m-%d %H:%M:%S")
+                                except Exception:
+                                    pass
+                        _c1 = col_map2.get("投诉分类1级")
+                        if _c1 is not None and _c1 < len(row) and row[_c1]:
+                            _rt_row_data["cat1"] = str(row[_c1]).strip()
+                        _c2 = col_map2.get("投诉分类2级")
+                        if _c2 is not None and _c2 < len(row) and row[_c2]:
+                            _rt_row_data["cat2"] = str(row[_c2]).strip()
+                        _rt_detail_rows.append(_rt_row_data)
+
         wb.close()
+
+        # ── 用实时计算结果覆盖汇总值（避免缓存公式值过时）──
+        if _rt_detail_rows and summary:
+            _rt_total = len(_rt_detail_rows)
+            _rt_overdue = 0
+            _rt_not_overdue = 0
+            _rt_warn_2h = 0
+            _rt_overdue_2_4h = 0
+            _rt_today_need = 0
+            _rt_broadband = 0
+
+            for _rd in _rt_detail_rows:
+                _timeout_val = _rd["timeout_val"]
+                _eight_val = _rd["eight_val"]
+                _cat1 = _rd["cat1"]
+                _cat2 = _rd["cat2"]
+
+                if _timeout_val:
+                    _is_not_overdue = _timeout_val > _now
+                    if _is_not_overdue:
+                        _rt_not_overdue += 1
+                    else:
+                        _rt_overdue += 1
+
+                    _timeout_date = _timeout_val.date() if hasattr(_timeout_val, "date") else None
+                    if _timeout_date and _is_not_overdue:
+                        if _timeout_date.day in (_today_day, _tomorrow_day):
+                            _rt_today_need += 1
+
+                _process_candidates = [v for v in (_timeout_val, _eight_val) if v is not None]
+                _process_deadline = min(_process_candidates) if _process_candidates else None
+
+                if _process_deadline:
+                    _pre_h = (_process_deadline - _now).total_seconds() / 3600
+                    if 0 <= _pre_h < 2:
+                        _rt_warn_2h += 1
+                    if 2 <= _pre_h < 4:
+                        _rt_overdue_2_4h += 1
+
+                if "家宽" in f"{_cat1}{_cat2}" or "家庭" in f"{_cat1}{_cat2}":
+                    _rt_broadband += 1
+
+            summary["total_not_overdue"] = str(_rt_not_overdue)
+            summary["total_overdue"] = str(_rt_overdue)
+            summary["total_backlog"] = str(_rt_total)
+            summary["warn_2h_overdue"] = str(_rt_warn_2h)
+            summary["overdue_2_4h"] = str(_rt_overdue_2_4h)
+            summary["today_need_process"] = str(_rt_today_need)
+            summary["broadband_business"] = str(_rt_broadband)
+            logger.info(f"10086投诉积压 实时计算覆盖: 未超时={_rt_not_overdue}, 超时={_rt_overdue}, 预警2h={_rt_warn_2h}, 2-4h={_rt_overdue_2_4h}")
 
         if summary:
             logger.info(f"10086投诉积压横山汇总: {filename} -> {summary}")

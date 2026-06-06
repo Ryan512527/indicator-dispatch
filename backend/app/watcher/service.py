@@ -21,6 +21,7 @@ SPECIALIZED_REPORTS = [
     ("无线退服",       "wireless-outage"),
     ("企宽装机",       "enterprise-broadband"),
     ("皮站故障",       "pisite-fault"),
+    ("线下派单",       "offline-dispatch"),
     ("接入层",         "access-layer"),
     ("日报",           "daily-report"),
 ]
