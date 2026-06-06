@@ -1,42 +1,43 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { EnterpriseBroadbandBacklogRecord } from '../types'
+import type { FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord } from '../types'
 
 const DISPLAY_FIELDS = [
   { key: 'district', label: '所属区县', width: '80px' },
-  { key: 'cover_scene', label: '覆盖场景', width: '100px' },
   { key: 'account', label: '宽带账号', width: '130px' },
-  { key: 'address', label: '施工地址', width: '280px' },
-  { key: 'worker_name', label: '施工人姓名', width: '90px' },
+  { key: 'global_access', label: '全球通标识', width: '100px' },
+  { key: 'service_type', label: '服务类型', width: '120px' },
+  { key: 'construction_address', label: '施工地址', width: '300px' },
+  { key: 'accept_department', label: '受理部门', width: '120px' },
   { key: 'accept_time', label: '受理时间', width: '150px' },
   { key: 'to_install_time', label: '到装维时间', width: '150px' },
   { key: 'deadline', label: '完成时限', width: '150px' },
-  { key: 'install_duration_hours', label: '装机历时（h）', width: '110px' },
-  { key: 'user_brand', label: '用户品牌', width: '110px' },
+  { key: 'natural_duration', label: '处理时长（自然时）', width: '130px' },
+  { key: 'return_time', label: '回单时间', width: '150px' },
+  { key: 'archive_time', label: '归档时间', width: '150px' },
+  { key: 'suspected_timeout', label: '疑似超时退单', width: '110px' },
+  { key: 'return_note', label: '回单备注信息', width: '200px' },
+  { key: 'specific_reason', label: '具体原因', width: '200px' },
 ]
 
-export function EnterpriseBroadbandBacklog({ onBack }: { onBack: () => void }) {
-  const [records, setRecords] = useState<EnterpriseBroadbandBacklogRecord[]>([])
+export function FiveCategoryWithdrawalDetail({ onBack }: { onBack: () => void }) {
+  const [records, setRecords] = useState<FiveCategoryWithdrawalDetailRecord[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
-  const [summary, setSummary] = useState<{
-    total_backlog?: string
-    day_backlog?: string
-    report_date?: string
-  }>({})
+  const [summary, setSummary] = useState<FiveCategoryWithdrawalSummary>({})
   const pageSize = 50
 
   useEffect(() => {
     setLoading(true)
     Promise.all([
-      api.getEnterpriseBroadbandSummary(),
-      api.getEnterpriseBroadbandBacklog(page, pageSize),
+      api.getFiveCategoryWithdrawalSummary(),
+      api.getFiveCategoryWithdrawalDetails(page, pageSize),
     ])
-      .then(([summaryData, backlogData]) => {
-        setSummary(summaryData as typeof summary)
-        setRecords(backlogData.records)
-        setTotal(backlogData.total)
+      .then(([summaryData, detailData]) => {
+        setSummary(summaryData as FiveCategoryWithdrawalSummary)
+        setRecords(detailData.records as unknown as FiveCategoryWithdrawalDetailRecord[])
+        setTotal(detailData.total)
       })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -73,7 +74,7 @@ export function EnterpriseBroadbandBacklog({ onBack }: { onBack: () => void }) {
             ← 返回
           </button>
           <h2 style={{ fontSize: 18, fontWeight: 600, color: '#1a1a2e', margin: 0 }}>
-            企宽积压清单
+            五类工单退撤单明细
           </h2>
           <span style={{
             display: 'inline-block',
@@ -89,15 +90,15 @@ export function EnterpriseBroadbandBacklog({ onBack }: { onBack: () => void }) {
         </div>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: '#888' }}>当日积压</div>
+            <div style={{ fontSize: 11, color: '#888' }}>日退撤总量</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: '#ef4444' }}>
-              {summary.day_backlog || '—'}
+              {summary.day_withdrawal_total || '—'}
             </div>
           </div>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: '#888' }}>积压总量</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#1e40af' }}>
-              {summary.total_backlog || '—'}
+            <div style={{ fontSize: 11, color: '#888' }}>日重装量</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#166534' }}>
+              {summary.day_reinstall_total || '—'}
             </div>
           </div>
           <div style={{ textAlign: 'center' }}>
@@ -130,7 +131,7 @@ export function EnterpriseBroadbandBacklog({ onBack }: { onBack: () => void }) {
         }}>
           {records.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>
-              暂无积压数据
+              暂无退撤单数据
             </div>
           ) : (
             <>
@@ -139,7 +140,7 @@ export function EnterpriseBroadbandBacklog({ onBack }: { onBack: () => void }) {
                   width: '100%',
                   borderCollapse: 'collapse',
                   fontSize: 13,
-                  minWidth: 1200,
+                  minWidth: 2200,
                 }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
@@ -169,29 +170,20 @@ export function EnterpriseBroadbandBacklog({ onBack }: { onBack: () => void }) {
                       >
                         {DISPLAY_FIELDS.map(f => {
                           const val = (rec as unknown as Record<string, string>)[f.key] || ''
-                          // 装机历时高亮展示
-                          const isDuration = f.key === 'install_duration_hours'
-                          const durationNum = isDuration ? parseFloat(val) : NaN
+                          // 疑似超时退单高亮：值为"是"时显示红色
+                          const isTimeout = f.key === 'suspected_timeout'
+                          const isYes = isTimeout && val === '是'
                           return (
                             <td key={f.key} style={{
                               padding: '8px 12px',
-                              color: '#333',
+                              color: isYes ? '#ef4444' : '#333',
+                              fontWeight: isYes ? 600 : 400,
                               maxWidth: f.width,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: f.key === 'address' ? 'normal' : 'nowrap',
-                            }} title={val}>
+                              whiteSpace: 'normal',
+                              wordBreak: 'break-all',
+                              lineHeight: 1.5,
+                            }}>
                               {val || '—'}
-                              {isDuration && !isNaN(durationNum) && durationNum > 48 && (
-                                <span style={{
-                                  marginLeft: 6,
-                                  fontSize: 10,
-                                  color: '#ef4444',
-                                  fontWeight: 600,
-                                }}>
-                                  超48h
-                                </span>
-                              )}
                             </td>
                           )
                         })}

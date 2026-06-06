@@ -64,7 +64,8 @@ export type Page =
   | { name: "access-layer-fault-detail" }
   | { name: "enterprise-broadband-backlog" }
   | { name: "daily-report-detail" }
-  | { name: "city-workload-detail" };
+  | { name: "city-workload-detail" }
+  | { name: "five-category-withdrawal-detail" };
 
 export interface WirelessOutageSummary {
   total: number;
@@ -112,6 +113,7 @@ export interface EnterpriseBroadbandSummary {
 export interface EnterpriseBroadbandBacklogRecord {
   id: number;
   district: string;
+  cover_scene: string;
   account: string;
   address: string;
   worker_name: string;
@@ -176,4 +178,32 @@ export interface CityWorkloadWorker {
   workload: Record<string, { backlog: number; today: number }>;
   total_backlog: number;
   total_today: number;
+}
+
+export interface FiveCategoryWithdrawalSummary {
+  district: string;
+  day_withdrawal_total: string;
+  day_reinstall_total: string;
+  month_withdrawal_total: string;
+  month_reinstall_total: string;
+  report_date: string;
+}
+
+export interface FiveCategoryWithdrawalDetailRecord {
+  id: number;
+  district: string;
+  account: string;
+  global_access: string;
+  service_type: string;
+  construction_address: string;
+  accept_department: string;
+  accept_time: string;
+  to_install_time: string;
+  deadline: string;
+  natural_duration: string;
+  return_time: string;
+  archive_time: string;
+  suspected_timeout: string;
+  return_note: string;
+  specific_reason: string;
 }
