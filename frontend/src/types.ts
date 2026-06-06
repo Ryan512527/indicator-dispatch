@@ -207,3 +207,15 @@ export interface FiveCategoryWithdrawalDetailRecord {
   return_note: string;
   specific_reason: string;
 }
+
+export interface ComplaintBacklogSummary {
+  district: string;
+  backlog_10086: string;
+  backlog_global: string;
+  backlog_2200000: string;
+  backlog_86_offline: string;
+  total_backlog: string;
+  previous_day_backlog: string;
+  ratio: string;
+  report_date: string;
+}

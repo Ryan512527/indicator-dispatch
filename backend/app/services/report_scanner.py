@@ -3178,3 +3178,260 @@ async def get_five_category_withdrawal_details(
         "page": page,
         "page_size": page_size,
     }
+
+
+# ── 宽带在途投诉清单横山数据专用处理 ──
+# 宽带在途投诉清单保留字段（来自"到县区"sheet）
+COMPLAINT_BACKLOG_FIELDS = [
+    "10086积压",      # backlog_10086
+    "全球通积压",      # backlog_global
+    "2200000积压",    # backlog_2200000
+    "86线下积压",     # backlog_86_offline
+    "合计",            # total_backlog
+    "前一日积压量",   # previous_day_backlog
+    "环比",            # ratio
+]
+
+
+def _parse_complaint_backlog_files(directory: str) -> dict:
+    """
+    解析最新的"宽带在途投诉清单"文件：
+    从"到县区"sheet 提取横山在途投诉汇总数据。
+    返回 {"summary": dict, "filename": str, "report_date": str}
+    """
+    from datetime import datetime as _dt
+
+    # 找到最新的宽带在途投诉清单文件
+    matching: list[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("~$") or f.startswith("."):
+                continue
+            if "宽带在途投诉清单" in f and f.lower().endswith((".xlsx", ".xls")):
+                matching.append(os.path.join(root, f))
+
+    if not matching:
+        return {"summary": None, "filename": None, "report_date": None}
+
+    # 按修改时间排序，取最新
+    matching.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+    latest_file = matching[0]
+    filename = os.path.basename(latest_file)
+
+    # 尝试从文件名提取日期
+    report_date = None
+    date_match = re.search(r'(\d{4})[-年](\d{1,2})[-月](\d{1,2})', filename)
+    if date_match:
+        report_date = f"{date_match.group(1)}-{date_match.group(2).zfill(2)}-{date_match.group(3).zfill(2)}"
+    else:
+        report_date = _dt.now().strftime("%Y-%m-%d")
+
+    try:
+        wb = openpyxl.load_workbook(latest_file, read_only=True, data_only=True)
+
+        # ── 解析"到县区"sheet ──
+        summary = None
+        if "到县区" in wb.sheetnames:
+            ws = wb["到县区"]
+            rows_data = list(ws.iter_rows(values_only=True))
+
+            if len(rows_data) >= 2:
+                # 查找表头行（包含"10086积压"或"区县"等关键字段）
+                header_row_idx = None
+                header_row = None
+                for idx, row in enumerate(rows_data):
+                    row_text = " ".join(str(c) for c in row if c)
+                    if any(kw in row_text for kw in ["10086积压", "区县", "合计"]):
+                        header_row_idx = idx
+                        header_row = row
+                        break
+
+                if header_row_idx is not None:
+                    # 建立列映射（合并表头可能跨两行，同时扫描子表头行和上一行）
+                    col_map: dict[str, int] = {}
+                    target_fields = ["区县", "县区", "10086积压", "全球通积压", "2200000积压", "86线下积压", "合计", "前一日积压量", "环比"]
+                    
+                    # 扫描子表头行（如行2）
+                    for target in target_fields:
+                        for idx, cell in enumerate(header_row):
+                            if cell and target in str(cell).strip():
+                                col_map[target] = idx
+                                break
+                    
+                    # 扫描上一行（合并表头行，如行1）补全缺失的列
+                    if header_row_idx > 0:
+                        parent_header = rows_data[header_row_idx - 1]
+                        for target in target_fields:
+                            if target not in col_map:
+                                for idx, cell in enumerate(parent_header):
+                                    if cell and target in str(cell).strip():
+                                        col_map[target] = idx
+                                        break
+
+                    # 查找横山行
+                    for row in rows_data[header_row_idx + 1:]:
+                        if not row or len(row) <= 1:
+                            continue
+                        
+                        # 尝试多种方式匹配区县名
+                        district_val = ""
+                        for key in ["区县", "县区"]:
+                            if key in col_map and col_map[key] < len(row) and row[col_map[key]]:
+                                district_val = str(row[col_map[key]]).strip()
+                                if district_val:
+                                    break
+                        
+                        if district_val == "横山" or district_val == "横山县":
+                            # 提取各字段值
+                            def _safe_str(key: str) -> str:
+                                idx = col_map.get(key)
+                                if idx is not None and idx < len(row) and row[idx] is not None:
+                                    val = row[idx]
+                                    # 数值类型直接转字符串
+                                    if isinstance(val, (int, float)):
+                                        return str(int(val)) if isinstance(val, int) or val == int(val) else str(val)
+                                    return str(val).strip()
+                                return ""
+
+                            summary = {
+                                "district": "横山",
+                                "backlog_10086": _safe_str("10086积压"),
+                                "backlog_global": _safe_str("全球通积压"),
+                                "backlog_2200000": _safe_str("2200000积压"),
+                                "backlog_86_offline": _safe_str("86线下积压"),
+                                "total_backlog": _safe_str("合计"),
+                                "previous_day_backlog": _safe_str("前一日积压量"),
+                                "ratio": _safe_str("环比"),
+                            }
+                            break
+
+            wb.close()
+            
+            if summary:
+                logger.info(f"宽带在途投诉清单横山: {filename} -> {summary}")
+            else:
+                logger.warning(f"宽带在途投诉清单: {filename} 未找到横山数据")
+                
+            return {
+                "summary": summary,
+                "filename": filename,
+                "report_date": report_date,
+            }
+        else:
+            logger.warning(f"宽带在途投诉清单: {filename} 缺少'到县区'sheet")
+            wb.close()
+            return {"summary": None, "filename": filename, "report_date": report_date}
+
+    except Exception as e:
+        logger.error(f"解析宽带在途投诉清单失败 {filename}: {e}", exc_info=True)
+        return {"summary": None, "filename": filename, "report_date": report_date}
+
+
+async def reparse_complaint_backlog(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """
+    重新解析宽带在途投诉清单文件，提取横山在途投诉汇总数据，更新数据库。
+    删除旧数据并写入新数据。
+    """
+    if directory is None:
+        directory = settings.watch_dir
+
+    # 在线程池中解析
+    result = await asyncio.to_thread(_parse_complaint_backlog_files, directory)
+
+    # 导入模型
+    from app.core.models import ComplaintBacklogSummary
+    from sqlalchemy import delete as _delete
+
+    # 删除旧汇总数据
+    await db.execute(_delete(ComplaintBacklogSummary))
+
+    summary_count = 0
+    if result["summary"]:
+        s = result["summary"]
+        cbs = ComplaintBacklogSummary(
+            report_date=result["report_date"] or "",
+            district=s["district"],
+            backlog_10086=s["backlog_10086"],
+            backlog_global=s["backlog_global"],
+            backlog_2200000=s["backlog_2200000"],
+            backlog_86_offline=s["backlog_86_offline"],
+            total_backlog=s["total_backlog"],
+            previous_day_backlog=s["previous_day_backlog"],
+            ratio=s["ratio"],
+        )
+        db.add(cbs)
+        summary_count = 1
+
+    # 获取或创建"宽带在途投诉清单"报表类型
+    stmt = select(ReportType).where(ReportType.name == "宽带在途投诉清单")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        report_type = ReportType(name="宽带在途投诉清单", category="投诉")
+        db.add(report_type)
+        await db.flush()
+
+    # 删除旧的 report_files/report_records
+    old_files_stmt = select(ReportFile.id).where(ReportFile.report_type_id == report_type.id)
+    r2 = await db.execute(old_files_stmt)
+    old_file_ids = [row[0] for row in r2.all()]
+    if old_file_ids:
+        await db.execute(_delete(ReportRecord).where(ReportRecord.report_file_id.in_(old_file_ids)))
+        await db.execute(_delete(ReportFile).where(ReportFile.report_type_id == report_type.id))
+
+    # 创建 ReportFile
+    if result["filename"]:
+        report_file = ReportFile(
+            report_type_id=report_type.id,
+            filename=result["filename"] or "",
+            file_path=os.path.join(directory, result["filename"] or ""),
+            parse_status="parsed",
+            record_count=1 if result["summary"] else 0,
+        )
+        db.add(report_file)
+
+    # 更新 column_hint
+    report_type.column_hint = COMPLAINT_BACKLOG_FIELDS.copy()
+    report_type.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+
+    return {
+        "summary_parsed": summary_count,
+        "filename": result["filename"],
+        "report_date": result["report_date"],
+    }
+
+
+async def get_complaint_backlog_summary(db: AsyncSession) -> dict:
+    """获取宽带在途投诉清单横山卡片指标"""
+    from app.core.models import ComplaintBacklogSummary
+
+    stmt = select(ComplaintBacklogSummary).order_by(ComplaintBacklogSummary.id.desc()).limit(1)
+    r = await db.execute(stmt)
+    row = r.scalar_one_or_none()
+
+    if not row:
+        return {
+            "district": "横山",
+            "backlog_10086": "",
+            "backlog_global": "",
+            "backlog_2200000": "",
+            "backlog_86_offline": "",
+            "total_backlog": "",
+            "previous_day_backlog": "",
+            "ratio": "",
+            "report_date": "",
+        }
+
+    return {
+        "district": row.district,
+        "backlog_10086": row.backlog_10086,
+        "backlog_global": row.backlog_global,
+        "backlog_2200000": row.backlog_2200000,
+        "backlog_86_offline": row.backlog_86_offline,
+        "total_backlog": row.total_backlog,
+        "previous_day_backlog": row.previous_day_backlog,
+        "ratio": row.ratio,
+        "report_date": row.report_date,
+    }
