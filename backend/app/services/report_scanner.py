@@ -3531,6 +3531,42 @@ def _parse_complaint_10086_files(directory: str) -> dict:
                                     col_map[target] = idx2
                                     break
 
+                # 特殊处理："预警2小时超时"和"2-4小时超时"在"含夜间"和"剔除夜间"两个区域都有
+                # 需要匹配"10086积压（剔除夜间）"区域的列
+                # 先定位"10086积压（剔除夜间）"父表头的列范围
+                exclude_night_start = None
+                exclude_night_end = None
+                # 在所有父表头行中查找包含"10086积压"且"剔除夜间"的单元格
+                for row_offset in [1, 2]:
+                    if header_row_idx >= row_offset:
+                        upper_row = rows_data[header_row_idx - row_offset]
+                        for idx2, cell in enumerate(upper_row):
+                            if cell:
+                                cell_str = str(cell).strip()
+                                if "10086" in cell_str and "剔除夜间" in cell_str:
+                                    exclude_night_start = idx2
+                                    break
+                        if exclude_night_start is not None:
+                            break
+
+                # 找到"剔除夜间"区域的结束列（在同一行的下一个非空单元格 - 1）
+                if exclude_night_start is not None:
+                    # 使用 grand_header (Row 1) 来确定区域结束
+                    end_header = rows_data[header_row_idx - 1] if header_row_idx > 0 else header_row
+                    for idx2 in range(exclude_night_start + 1, len(end_header)):
+                        if end_header[idx2] is not None and str(end_header[idx2]).strip():
+                            exclude_night_end = idx2
+                            break
+                    if exclude_night_end is None:
+                        exclude_night_end = len(header_row)
+
+                    # 在"剔除夜间"区域内匹配"预警2小时超时"和"2-4小时超时"
+                    for target in ["预警2小时超时", "2-4小时超时"]:
+                        for idx2 in range(exclude_night_start, exclude_night_end):
+                            if idx2 < len(header_row) and header_row[idx2] and target in str(header_row[idx2]).strip():
+                                col_map[target] = idx2
+                                break
+
                 # 查找横山行
                 for row in rows_data[header_row_idx + 1:]:
                     if not row or len(row) <= 1:
@@ -3559,6 +3595,8 @@ def _parse_complaint_10086_files(directory: str) -> dict:
                             "broadband_business": _safe_str("家宽业务"),
                             "total_overdue": _safe_str("合计超时积压"),
                             "total_backlog": _safe_str("合计积压"),
+                            "warn_2h_overdue": _safe_str("预警2小时超时"),
+                            "overdue_2_4h": _safe_str("2-4小时超时"),
                         }
                         break
 
@@ -3663,6 +3701,8 @@ async def reparse_complaint_10086(db: AsyncSession, directory: Optional[str] = N
             broadband_business=s["broadband_business"],
             total_overdue=s["total_overdue"],
             total_backlog=s["total_backlog"],
+            warn_2h_overdue=s.get("warn_2h_overdue", ""),
+            overdue_2_4h=s.get("overdue_2_4h", ""),
         )
         db.add(cbs)
         summary_count = 1
@@ -3746,6 +3786,8 @@ async def get_complaint_10086_summary(db: AsyncSession) -> dict:
             "broadband_business": "",
             "total_overdue": "",
             "total_backlog": "",
+            "warn_2h_overdue": "",
+            "overdue_2_4h": "",
             "report_date": "",
         }
 
@@ -3756,6 +3798,8 @@ async def get_complaint_10086_summary(db: AsyncSession) -> dict:
         "broadband_business": row.broadband_business,
         "total_overdue": row.total_overdue,
         "total_backlog": row.total_backlog,
+        "warn_2h_overdue": row.warn_2h_overdue or "",
+        "overdue_2_4h": row.overdue_2_4h or "",
         "report_date": row.report_date,
     }
 

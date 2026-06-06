@@ -1401,6 +1401,8 @@ function Complaint10086Card({ color, onNavigate }: { color: string; onNavigate: 
   const todayNeedProcess = summary?.today_need_process || '—'
   const broadbandBusiness = summary?.broadband_business || '—'
   const totalOverdue = summary?.total_overdue || '—'
+  const warn2hOverdue = summary?.warn_2h_overdue || '—'
+  const overdue2_4h = summary?.overdue_2_4h || '—'
 
   return (
     <div
@@ -1480,6 +1482,18 @@ function Complaint10086Card({ color, onNavigate }: { color: string; onNavigate: 
         </div>
       </div>
 
+      {/* 剔除夜间 - 预警2小时 + 2-4小时超时 */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        <div style={{ flex: 1, background: '#fff7ed', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#ea580c', lineHeight: 1.2 }}>{warn2hOverdue}</div>
+          <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>预警2小时超时</div>
+        </div>
+        <div style={{ flex: 1, background: '#fef2f2', borderRadius: 6, padding: '6px 8px', textAlign: 'center' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#dc2626', lineHeight: 1.2 }}>{overdue2_4h}</div>
+          <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>2-4小时超时</div>
+        </div>
+      </div>
+
       {/* 底部信息 */}
       <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -1513,21 +1527,21 @@ function Complaint10086DetailPage({ onNavigate }: { onNavigate: (p: Page) => voi
   const totalPages = Math.ceil(total / pageSize)
 
   const columns = [
-    { key: 'district', label: '所属区县', width: 70 },
-    { key: 'timeout_deadline', label: '超时时限', width: 130 },
-    { key: 'broadband_account', label: '宽带帐号', width: 110 },
-    { key: 'global_access', label: '全球通属性', width: 90 },
-    { key: 'customer_contact', label: '客户联系方式', width: 110 },
-    { key: 'customer_urge_count', label: '催单次数', width: 60 },
-    { key: 'community_name', label: '小区名称', width: 180 },
-    { key: 'handler_name', label: '处理人姓名', width: 80 },
-    { key: 'is_door_service', label: '是否上门', width: 60 },
-    { key: 'complaint_category5', label: '投诉分类5级', width: 120 },
-    { key: 'reply_content', label: '回复内容', width: 260 },
+    { key: 'district', label: '所属区县', width: 80 },
+    { key: 'timeout_deadline', label: '超时时限', width: 150 },
+    { key: 'broadband_account', label: '宽带帐号', width: 120 },
+    { key: 'global_access', label: '全球通属性', width: 100 },
+    { key: 'customer_contact', label: '客户联系方式', width: 120 },
+    { key: 'customer_urge_count', label: '催单次数', width: 70 },
+    { key: 'community_name', label: '小区名称', width: 280 },
+    { key: 'handler_name', label: '处理人姓名', width: 90 },
+    { key: 'is_door_service', label: '是否上门', width: 70 },
+    { key: 'complaint_category5', label: '投诉分类5级', width: 160 },
+    { key: 'reply_content', label: '回复内容', width: 400 },
   ]
 
   return (
-    <div style={{ padding: '20px 24px', maxWidth: 1200, margin: '0 auto' }}>
+    <div style={{ padding: '20px 24px' }}>
       {/* 页面头部 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <button
@@ -1566,7 +1580,7 @@ function Complaint10086DetailPage({ onNavigate }: { onNavigate: (p: Page) => voi
           background: '#fff',
           WebkitOverflowScrolling: 'touch',
         }}>
-          <table style={{ borderCollapse: 'collapse', minWidth: 1200 }}>
+          <table style={{ borderCollapse: 'collapse', minWidth: 1700 }}>
             <thead>
               <tr style={{ background: '#f9fafb' }}>
                 <th style={{
@@ -1603,23 +1617,35 @@ function Complaint10086DetailPage({ onNavigate }: { onNavigate: (p: Page) => voi
                   {columns.map(col => {
                     const val = (rec as any)[col.key] || ''
                     const isLongText = val.length > 20
+                    const isReplyContent = col.key === 'reply_content'
                     const isNotDoor = col.key === 'is_door_service' && val === '否'
                     const textColor = isNotDoor ? '#ef4444' : '#374151'
-                    return (
-                      <td key={col.key} style={{
-                        padding: '8px 12px', fontSize: 12, color: textColor,
-                        borderBottom: '1px solid #f0f0f0',
-                        maxWidth: col.width + 40,
-                        minWidth: col.width,
+                    const cellContent = isReplyContent ? (
+                      <div style={{ lineHeight: 1.6, wordBreak: 'break-all' }}>
+                        {val}
+                      </div>
+                    ) : isLongText ? (
+                      <div style={{
                         lineHeight: 1.5,
                         overflow: 'hidden',
                         display: '-webkit-box',
                         WebkitLineClamp: 4,
                         WebkitBoxOrient: 'vertical',
-                        whiteSpace: isLongText ? 'normal' : 'nowrap',
                         wordBreak: 'break-all',
                       }}>
                         {val}
+                      </div>
+                    ) : val
+                    return (
+                      <td key={col.key} style={{
+                        padding: '8px 12px', fontSize: 12, color: textColor,
+                        borderBottom: '1px solid #f0f0f0',
+                        minWidth: col.width,
+                        lineHeight: isReplyContent ? 1.6 : 1.5,
+                        whiteSpace: isReplyContent || isLongText ? 'normal' : 'nowrap',
+                        wordBreak: 'break-all',
+                      }}>
+                        {cellContent}
                       </td>
                     )
                   })}

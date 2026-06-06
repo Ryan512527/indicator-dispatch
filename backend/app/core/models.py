@@ -263,6 +263,7 @@ class ComplaintBacklogSummary(Base):
 class Complaint10086Summary(Base):
     """10086投诉积压(督办) - 横山汇总指标（来自"表"sheet）
     累计在途情况（按照工单处理时限计算）: 合计未超时积压、今日需处理量、家宽业务、合计超时积压、合计积压
+    10086积压（剔除夜间）: 预警2小时超时、2-4小时超时
     """
     __tablename__ = "complaint_10086_summary"
 
@@ -274,6 +275,8 @@ class Complaint10086Summary(Base):
     broadband_business = Column(String(50), comment="家宽业务")
     total_overdue = Column(String(50), comment="合计超时积压")
     total_backlog = Column(String(50), comment="合计积压")
+    warn_2h_overdue = Column(String(50), comment="预警2小时超时(剔除夜间)")
+    overdue_2_4h = Column(String(50), comment="2-4小时超时(剔除夜间)")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

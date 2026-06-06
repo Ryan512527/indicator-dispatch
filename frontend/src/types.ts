@@ -228,6 +228,8 @@ export interface Complaint10086Summary {
   broadband_business: string;
   total_overdue: string;
   total_backlog: string;
+  warn_2h_overdue: string;
+  overdue_2_4h: string;
   report_date: string;
 }
 
