@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -1795,6 +1795,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 if (rt.name === '2200000及时率通报') {
                   return <Complaint2200000Card key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
+                // 线下派单处理情况用专用卡片
+                if (rt.name === '线下派单处理情况') {
+                  return <OfflineDispatchCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
                 return <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
               })}
             </div>
@@ -1917,6 +1921,84 @@ function Complaint2200000Card({ onNavigate }: { color: string; onNavigate: (p: P
       <div style={{ textAlign: 'center', padding: '4px 0 0', borderTop: '1px solid #f0f0f0' }}>
         <span style={{ fontSize: 11, color: '#888' }}>升级投诉量: </span>
         <span style={{ fontSize: 15, fontWeight: 700, color: '#dc2626' }}>{escalateComplaint}</span>
+      </div>
+
+      {loading && (
+        <div style={{ textAlign: 'center', padding: '6px 0 0', fontSize: 11, color: '#bbb' }}>加载中...</div>
+      )}
+    </div>
+  )
+}
+
+// ── 线下派单处理情况 卡片 ──
+function OfflineDispatchCard({ onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<OfflineDispatchSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    ;(api as any).getOfflineDispatchSummary()
+      .then((data: OfflineDispatchSummary) => setSummary(data))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  const reportDate = summary?.report_date || ''
+  const monthlyDispatch = summary?.monthly_dispatch || '—'
+  const overdueBacklog = summary?.overdue_backlog || '—'
+  const notOverdueBacklog = summary?.not_overdue_backlog || '—'
+  const totalInTransit = summary?.total_in_transit || '—'
+  const warn4hOverdue = summary?.warn_4h_overdue || '—'
+
+  return (
+    <div
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+        cursor: 'pointer',
+        transition: 'box-shadow 0.2s',
+        minWidth: 260,
+      }}
+      onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)')}
+      onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)')}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e' }}>线下派单处理情况</span>
+        {reportDate && (
+          <span style={{ fontSize: 11, color: '#999' }}>{reportDate.slice(5)}</span>
+        )}
+      </div>
+
+      {/* 月派单量 - 大数字 */}
+      <div style={{ textAlign: 'center', marginBottom: 10 }}>
+        <div style={{ fontSize: 28, fontWeight: 800, color: '#2563eb', lineHeight: 1.1 }}>
+          {loading ? '...' : monthlyDispatch}
+        </div>
+        <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>月派单量</div>
+      </div>
+
+      {/* 在途积压(24h) */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 6, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, background: '#fef2f2', borderRadius: 6, padding: '4px 6px', textAlign: 'center', minWidth: 70 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#dc2626' }}>{overdueBacklog}</div>
+          <div style={{ fontSize: 9, color: '#888' }}>超时积压</div>
+        </div>
+        <div style={{ flex: 1, background: '#f0fdf4', borderRadius: 6, padding: '4px 6px', textAlign: 'center', minWidth: 70 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a' }}>{notOverdueBacklog}</div>
+          <div style={{ fontSize: 9, color: '#888' }}>未超时积压</div>
+        </div>
+        <div style={{ flex: 1, background: '#eff6ff', borderRadius: 6, padding: '4px 6px', textAlign: 'center', minWidth: 70 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#2563eb' }}>{totalInTransit}</div>
+          <div style={{ fontSize: 9, color: '#888' }}>累计在途</div>
+        </div>
+      </div>
+
+      {/* 预警4h超时 */}
+      <div style={{ background: '#fff7ed', borderRadius: 6, padding: '4px 6px', textAlign: 'center' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#ea580c' }}>{warn4hOverdue}</div>
+        <div style={{ fontSize: 9, color: '#888' }}>预警4h超时</div>
       </div>
 
       {loading && (

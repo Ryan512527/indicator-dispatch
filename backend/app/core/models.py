@@ -342,3 +342,44 @@ class Complaint2200000Detail(Base):
     category = Column(String(20), comment="分类:在途/往月")
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class OfflineDispatchSummary(Base):
+    """线下派单处理情况 - 横山汇总指标（来自"通报"sheet）
+    月派单量 / 超时积压 / 未超时积压 / 累计在途 / 预警4小时超时
+    """
+    __tablename__ = "offline_dispatch_summary"
+
+    id = Column(BigInteger, primary_key=True)
+    report_date = Column(String(50), comment="通报日期")
+    district = Column(String(50), default="横山", comment="区县")
+    monthly_dispatch = Column(String(50), comment="月派单量")
+    overdue_backlog = Column(String(50), comment="超时积压(24h)")
+    not_overdue_backlog = Column(String(50), comment="未超时积压(24h)")
+    total_in_transit = Column(String(50), comment="累计在途")
+    warn_4h_overdue = Column(String(50), comment="预警4小时超时")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class OfflineDispatchDetail(Base):
+    """线下派单处理情况 - 横山明细（来自"累计在途需处理（自接）"+ "往月积压"sheet）
+    筛选条件：所属区县=横山(县)
+    """
+    __tablename__ = "offline_dispatch_detail"
+
+    id = Column(BigInteger, primary_key=True)
+    report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=False, index=True)
+    district = Column(String(50), comment="所属区县")
+    order_no = Column(String(100), comment="工单号")
+    is_first_contact = Column(String(20), comment="是否首联")
+    broadband_account = Column(String(100), comment="宽带帐号")
+    current_step = Column(String(100), comment="当前工单环节")
+    accept_time = Column(String(50), comment="客服受理时间")
+    dispatch_time = Column(String(50), comment="客服派单到装维时间")
+    grid_name = Column(String(100), comment="网格")
+    risk_5a = Column(String(200), comment="5A升级风险")
+    handler_name = Column(String(50), comment="处理人姓名")
+    handler_phone = Column(String(50), comment="处理人电话")
+    construction_address = Column(Text, comment="施工地址")
+    category = Column(String(20), comment="分类:在途/往月")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

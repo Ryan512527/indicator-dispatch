@@ -4322,3 +4322,131 @@ async def get_complaint_2200000_details(
         "page": page,
         "page_size": page_size,
     }
+
+
+# ── 线下派单处理情况 ──
+
+def _parse_offline_dispatch_files(directory: str) -> dict:
+    """解析线下派单处理情况报表（只读取"通报"sheet中横山区的数字）"""
+    import re as _re
+
+    # 查找最新的线下派单处理情况文件（按修改时间排序）
+    pattern = os.path.join(directory, "**", "*线下派单处理情况*")
+    files = glob.glob(pattern, recursive=True)
+    if not files:
+        return {"summary": None, "report_date": "", "filename": ""}
+
+    latest_file = max(files, key=os.path.getmtime)
+    filename = os.path.basename(latest_file)
+
+    wb = openpyxl.load_workbook(latest_file, data_only=True)
+    if "通报" not in wb.sheetnames:
+        logger.warning(f"线下派单处理情况: 文件 {filename} 缺少'通报'sheet")
+        return {"summary": None, "report_date": "", "filename": filename}
+
+    ws = wb["通报"]
+
+    # 提取通报日期（从Row 1标题，如"线下派单处理情况（装维调度） 截止6月5日   17:10"）
+    report_date = ""
+    title_cell = ws.cell(row=1, column=1).value
+    if title_cell:
+        m = _re.search(r'截止(\d+)月(\d+)日', str(title_cell))
+        if m:
+            report_date = f"2026-{m.group(1).zfill(2)}-{m.group(2).zfill(2)}"
+
+    # 找横山区数据行
+    district_filter = "横山"
+    hengshan_row = None
+    for row in range(5, ws.max_row + 1):
+        cell_val = ws.cell(row=row, column=1).value
+        if cell_val and district_filter in str(cell_val):
+            hengshan_row = row
+            break
+
+    if not hengshan_row:
+        logger.warning(f"线下派单处理情况: 未找到横山区数据")
+        return {"summary": None, "report_date": report_date, "filename": filename}
+
+    # 提取5个指标
+    def _val(r, c):
+        v = ws.cell(row=r, column=c).value
+        return str(v) if v is not None else ""
+
+    summary = {
+        "district": district_filter,
+        "monthly_dispatch": _val(hengshan_row, 5),       # [5] 月派单量
+        "overdue_backlog": _val(hengshan_row, 6),         # [6] 超时积压
+        "not_overdue_backlog": _val(hengshan_row, 7),     # [7] 未超时积压
+        "total_in_transit": _val(hengshan_row, 8),        # [8] 累计在途
+        "warn_4h_overdue": _val(hengshan_row, 10),        # [10] 预警4小时超时
+    }
+
+    logger.info(f"线下派单处理情况: 解析完成, report_date={report_date}, summary={summary}")
+    return {"summary": summary, "report_date": report_date, "filename": filename}
+
+
+async def reparse_offline_dispatch(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """重新解析线下派单处理情况文件，提取横山汇总指标，更新数据库。"""
+    if directory is None:
+        directory = settings.watch_dir
+
+    result = await asyncio.to_thread(_parse_offline_dispatch_files, directory)
+
+    from app.core.models import OfflineDispatchSummary
+    from sqlalchemy import delete as _delete
+
+    # 删除旧数据
+    await db.execute(_delete(OfflineDispatchSummary))
+
+    summary_count = 0
+    if result["summary"]:
+        s = result["summary"]
+        ods = OfflineDispatchSummary(
+            report_date=result["report_date"] or "",
+            district=s["district"],
+            monthly_dispatch=s["monthly_dispatch"],
+            overdue_backlog=s["overdue_backlog"],
+            not_overdue_backlog=s["not_overdue_backlog"],
+            total_in_transit=s["total_in_transit"],
+            warn_4h_overdue=s["warn_4h_overdue"],
+        )
+        db.add(ods)
+        summary_count = 1
+
+    await db.commit()
+
+    return {
+        "summary_parsed": summary_count,
+        "filename": result["filename"],
+        "report_date": result["report_date"],
+    }
+
+
+async def get_offline_dispatch_summary(db: AsyncSession) -> dict:
+    """获取线下派单处理情况横山卡片指标"""
+    from app.core.models import OfflineDispatchSummary
+
+    stmt = select(OfflineDispatchSummary).order_by(OfflineDispatchSummary.id.desc()).limit(1)
+    r = await db.execute(stmt)
+    row = r.scalar_one_or_none()
+
+    if not row:
+        return {
+            "district": "横山",
+            "monthly_dispatch": "",
+            "overdue_backlog": "",
+            "not_overdue_backlog": "",
+            "total_in_transit": "",
+            "warn_4h_overdue": "",
+            "report_date": "",
+        }
+
+    return {
+        "district": row.district,
+        "monthly_dispatch": row.monthly_dispatch,
+        "overdue_backlog": row.overdue_backlog,
+        "not_overdue_backlog": row.not_overdue_backlog,
+        "total_in_transit": row.total_in_transit,
+        "warn_4h_overdue": row.warn_4h_overdue,
+        "report_date": row.report_date,
+    }

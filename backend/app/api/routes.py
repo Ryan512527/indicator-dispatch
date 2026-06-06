@@ -600,3 +600,25 @@ async def complaint_2200000_reparse(
     from app.services.report_scanner import reparse_complaint_2200000
     result = await reparse_complaint_2200000(db, directory)
     return {"report_type": "2200000及时率通报", **result}
+
+
+# ── 线下派单处理情况 ──
+
+@router.get("/reports/offline-dispatch/summary")
+async def offline_dispatch_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取线下派单处理情况横山卡片指标"""
+    from app.services.report_scanner import get_offline_dispatch_summary
+    return await get_offline_dispatch_summary(db)
+
+
+@router.post("/reports/offline-dispatch/reparse")
+async def offline_dispatch_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析线下派单处理情况文件，提取横山汇总指标"""
+    from app.services.report_scanner import reparse_offline_dispatch
+    result = await reparse_offline_dispatch(db, directory)
+    return {"report_type": "线下派单处理情况", **result}

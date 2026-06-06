@@ -272,3 +272,13 @@ export interface Complaint2200000DetailRecord {
   handler_name: string;
   category: string;
 }
+
+export interface OfflineDispatchSummary {
+  district: string;
+  monthly_dispatch: string;
+  overdue_backlog: string;
+  not_overdue_backlog: string;
+  total_in_transit: string;
+  warn_4h_overdue: string;
+  report_date: string;
+}
