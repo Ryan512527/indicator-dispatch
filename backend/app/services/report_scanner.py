@@ -3247,31 +3247,50 @@ def _parse_complaint_backlog_files(directory: str) -> dict:
                         break
 
                 if header_row_idx is not None:
-                    # 建立列映射
+                    # 建立列映射（合并表头可能跨两行，同时扫描子表头行和上一行）
                     col_map: dict[str, int] = {}
-                    target_fields = ["区县", "10086积压", "全球通积压", "2200000积压", "86线下积压", "合计", "前一日积压量", "环比"]
+                    target_fields = ["区县", "县区", "10086积压", "全球通积压", "2200000积压", "86线下积压", "合计", "前一日积压量", "环比"]
                     
+                    # 扫描子表头行（如行2）
                     for target in target_fields:
                         for idx, cell in enumerate(header_row):
                             if cell and target in str(cell).strip():
                                 col_map[target] = idx
                                 break
+                    
+                    # 扫描上一行（合并表头行，如行1）补全缺失的列
+                    if header_row_idx > 0:
+                        parent_header = rows_data[header_row_idx - 1]
+                        for target in target_fields:
+                            if target not in col_map:
+                                for idx, cell in enumerate(parent_header):
+                                    if cell and target in str(cell).strip():
+                                        col_map[target] = idx
+                                        break
 
                     # 查找横山行
                     for row in rows_data[header_row_idx + 1:]:
                         if not row or len(row) <= 1:
                             continue
                         
+                        # 尝试多种方式匹配区县名
                         district_val = ""
-                        if "区县" in col_map and col_map["区县"] < len(row) and row[col_map["区县"]]:
-                            district_val = str(row[col_map["区县"]]).strip()
+                        for key in ["区县", "县区"]:
+                            if key in col_map and col_map[key] < len(row) and row[col_map[key]]:
+                                district_val = str(row[col_map[key]]).strip()
+                                if district_val:
+                                    break
                         
                         if district_val == "横山" or district_val == "横山县":
                             # 提取各字段值
                             def _safe_str(key: str) -> str:
                                 idx = col_map.get(key)
                                 if idx is not None and idx < len(row) and row[idx] is not None:
-                                    return str(row[idx]).strip()
+                                    val = row[idx]
+                                    # 数值类型直接转字符串
+                                    if isinstance(val, (int, float)):
+                                        return str(int(val)) if isinstance(val, int) or val == int(val) else str(val)
+                                    return str(val).strip()
                                 return ""
 
                             summary = {
