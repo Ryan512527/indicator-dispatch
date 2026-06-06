@@ -301,3 +301,53 @@ export interface OfflineDispatchDetailResponse {
   page: number;
   page_size: number;
 }
+
+export interface RetryWarningSummary {
+  district: string;
+  retry_2_times: string;
+  retry_3_times: string;
+  retry_4plus_times: string;
+  total_in_transit: string;
+  daily_closed: string;
+  repair_total: string;
+  repair_in_transit: string;
+  repair_closed: string;
+  report_date: string;
+}
+
+export interface RetryWarningDetailRecord {
+  id: number;
+  district: string;
+  retry_count: string;
+  broadband_account: string;
+  is_global_user: string;
+  customer_contact: string;
+  construction_address: string;
+  days_elapsed: string;
+  handler_name: string;
+  complaint_content: string;
+}
+
+export interface CustomerRepairDetailRecord {
+  id: number;
+  district: string;
+  repair_count: string;
+  account: string;
+  call_number: string;
+  address: string;
+  register_date: string;
+}
+
+export interface RetryWarningDetailResponse {
+  records: RetryWarningDetailRecord[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface CustomerRepairDetailResponse {
+  records: CustomerRepairDetailRecord[];
+  total: number;
+  page: number;
+  page_size: number;
+}

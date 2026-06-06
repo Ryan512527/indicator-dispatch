@@ -12,6 +12,7 @@ import { DailyReportDetail } from './pages/DailyReportDetail'
 import { CityWorkloadDetail } from './pages/CityWorkloadDetail'
 import { FiveCategoryWithdrawalDetail } from './pages/FiveCategoryWithdrawalDetail'
 import { OfflineDispatchDetail } from './pages/OfflineDispatchDetail'
+import { RetryWarningDetailPage } from './pages/RetryWarningDetail'
 import type { Page } from './types'
 
 
@@ -34,6 +35,7 @@ export default function App() {
         page.name === 'offline-dispatch-detail' ? '/offline-dispatch' :
         page.name === 'complaint-10086-detail' ? '/complaint-10086' :
         page.name === 'complaint-2200000-detail' ? '/complaint-2200000' :
+        page.name === 'retry-warning-detail' ? '/retry-warning' :
         ''
       }
       onNavigate={(p: string | Page) => {
@@ -59,6 +61,7 @@ export default function App() {
       {page.name === 'offline-dispatch-detail' && <OfflineDispatchDetail onBack={() => setPage({ name: 'dashboard' })} />}
       {page.name === 'complaint-10086-detail' && <Dashboard onNavigate={p => setPage(p)} initialPage="complaint-10086-detail" />}
       {page.name === 'complaint-2200000-detail' && <Dashboard onNavigate={p => setPage(p)} initialPage="complaint-2200000-detail" />}
+      {page.name === 'retry-warning-detail' && <RetryWarningDetailPage onNavigate={p => setPage(p)} />}
     </Layout>
   )
 }

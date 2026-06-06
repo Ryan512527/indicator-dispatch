@@ -670,3 +670,94 @@ async def offline_dispatch_details(
         "page": page,
         "page_size": page_size,
     }
+
+
+# ── 重投预警工单梳理 ──
+
+@router.get("/reports/retry-warning/summary")
+async def retry_warning_summary(db: AsyncSession = Depends(get_db)):
+    """获取重投预警工单梳理横山卡片指标"""
+    from app.services.report_scanner import get_retry_warning_summary
+    return await get_retry_warning_summary(db)
+
+
+@router.post("/reports/retry-warning/reparse")
+async def retry_warning_reparse(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析重投预警工单梳理文件"""
+    from app.services.report_scanner import reparse_retry_warning
+    result = await reparse_retry_warning(db)
+    return {"report_type": "重投预警工单梳理", **result}
+
+
+@router.get("/reports/retry-warning/retry-details")
+async def retry_warning_retry_details(
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """获取重投预警清单明细（预警1清单）"""
+    from app.core.models import RetryWarningDetail
+    from sqlalchemy import select, func
+
+    count_stmt = select(func.count(RetryWarningDetail.id))
+    r = await db.execute(count_stmt)
+    total = r.scalar() or 0
+
+    offset = (page - 1) * page_size
+    data_stmt = select(RetryWarningDetail).order_by(RetryWarningDetail.id.asc()).offset(offset).limit(page_size)
+    r2 = await db.execute(data_stmt)
+    rows = r2.scalars().all()
+
+    records = []
+    for row in rows:
+        records.append({
+            "id": row.id,
+            "district": row.district,
+            "retry_count": row.retry_count,
+            "broadband_account": row.broadband_account,
+            "is_global_user": row.is_global_user,
+            "customer_contact": row.customer_contact,
+            "construction_address": row.construction_address,
+            "days_elapsed": row.days_elapsed,
+            "handler_name": row.handler_name,
+            "complaint_content": row.complaint_content,
+        })
+
+    return {"records": records, "total": total, "page": page, "page_size": page_size}
+
+
+@router.get("/reports/retry-warning/repair-details")
+async def retry_warning_repair_details(
+    page: int = 1,
+    page_size: int = 50,
+    db: AsyncSession = Depends(get_db),
+):
+    """获取客户催修清单明细（预警2催修未恢复）"""
+    from app.core.models import CustomerRepairDetail
+    from sqlalchemy import select, func
+
+    count_stmt = select(func.count(CustomerRepairDetail.id))
+    r = await db.execute(count_stmt)
+    total = r.scalar() or 0
+
+    offset = (page - 1) * page_size
+    data_stmt = select(CustomerRepairDetail).order_by(CustomerRepairDetail.id.asc()).offset(offset).limit(page_size)
+    r2 = await db.execute(data_stmt)
+    rows = r2.scalars().all()
+
+    records = []
+    for row in rows:
+        records.append({
+            "id": row.id,
+            "district": row.district,
+            "repair_count": row.repair_count,
+            "account": row.account,
+            "call_number": row.call_number,
+            "address": row.address,
+            "register_date": row.register_date,
+        })
+
+    return {"records": records, "total": total, "page": page, "page_size": page_size}

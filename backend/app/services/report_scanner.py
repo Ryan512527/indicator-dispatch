@@ -4740,3 +4740,276 @@ async def get_offline_dispatch_summary(db: AsyncSession) -> dict:
         "warn_4h_overdue": row.warn_4h_overdue,
         "report_date": row.report_date,
     }
+
+
+def _parse_retry_warning_files(directory: str) -> dict:
+    """解析最新的"重投预警工单梳理"文件：
+    1. 从"预警通报"sheet 提取横山汇总指标
+    2. 从"预警1清单"sheet 提取横山重投预警明细
+    3. 从"预警2催修未恢复"sheet 提取横山客户催修明细
+    返回 {
+        "summary": dict | None,
+        "retry_details": [dict],
+        "repair_details": [dict],
+        "filename": str,
+        "report_date": str,
+    }
+    """
+    import re as _re
+
+    pattern = os.path.join(directory, "**", "*重投预警工单梳理*")
+    files = sorted(glob.glob(pattern, recursive=True), key=os.path.getmtime, reverse=True)
+    if not files:
+        return {"summary": None, "retry_details": [], "repair_details": [], "filename": None, "report_date": None}
+
+    latest_file = files[0]
+    filename = os.path.basename(latest_file)
+
+    try:
+        wb = openpyxl.load_workbook(latest_file, read_only=True, data_only=True)
+
+        # ── 1. 解析"预警通报"sheet（汇总指标）──
+        summary = None
+        report_date = ""
+
+        if "预警通报" in wb.sheetnames:
+            ws = wb["预警通报"]
+            rows_data = list(ws.iter_rows(values_only=True))
+
+            if rows_data:
+                # 提取通报日期
+                if rows_data[0] and rows_data[0][0]:
+                    title = str(rows_data[0][0])
+                    m = _re.search(r'截止(\d+)日', title)
+                    if m:
+                        # 从文件名或标题推断月份
+                        month_m = _re.search(r'(\d{1,2})月', title)
+                        month = month_m.group(1).zfill(2) if month_m else "01"
+                        report_date = f"2026-{month}-{m.group(1).zfill(2)}"
+
+                # 横山区数据在 rows_data[8] (Excel row 9)
+                hengshan_row = None
+                for i, row in enumerate(rows_data):
+                    if row and row[0] and "横山" in str(row[0]):
+                        hengshan_row = row
+                        break
+
+                if hengshan_row:
+                    summary = {
+                        "district": "横山",
+                        "retry_2_times":    str(hengshan_row[5]).strip()  if len(hengshan_row) > 5  and hengshan_row[5]  is not None else "",
+                        "retry_3_times":    str(hengshan_row[6]).strip()  if len(hengshan_row) > 6  and hengshan_row[6]  is not None else "",
+                        "retry_4plus_times": str(hengshan_row[7]).strip()  if len(hengshan_row) > 7  and hengshan_row[7]  is not None else "",
+                        "total_in_transit":  str(hengshan_row[8]).strip()  if len(hengshan_row) > 8  and hengshan_row[8]  is not None else "",
+                        "daily_closed":      str(hengshan_row[9]).strip()  if len(hengshan_row) > 9  and hengshan_row[9]  is not None else "",
+                        "repair_total":      str(hengshan_row[11]).strip() if len(hengshan_row) > 11 and hengshan_row[11] is not None else "",
+                        "repair_in_transit": str(hengshan_row[12]).strip() if len(hengshan_row) > 12 and hengshan_row[12] is not None else "",
+                        "repair_closed":     str(hengshan_row[13]).strip() if len(hengshan_row) > 13 and hengshan_row[13] is not None else "",
+                    }
+
+        # ── 2. 解析"预警1清单"sheet（重投预警明细）──
+        retry_details = []
+        if "预警1清单" in wb.sheetnames:
+            ws1 = wb["预警1清单"]
+            rows1 = list(ws1.iter_rows(values_only=True))
+            if rows1 and len(rows1) > 1:
+                # 构建列名→索引映射
+                header = rows1[0]
+                col_map = {}
+                for i, cell in enumerate(header):
+                    if cell:
+                        col_map[str(cell).strip()] = i
+
+                col_district   = col_map.get("所属区县")
+                col_retry     = col_map.get("重投")
+                col_account   = col_map.get("宽带帐号")
+                col_global    = col_map.get("是否全球通用户") or col_map.get("全球通属性")
+                col_contact    = col_map.get("客户联系方式")
+                col_address   = col_map.get("施工地址")
+                col_days      = col_map.get("历时天数")
+                col_handler   = col_map.get("处理人姓名")
+                col_complaint = col_map.get("投诉内容")
+
+                def _safe_str(row, idx):
+                    if idx is None or idx >= len(row) or row[idx] is None:
+                        return ""
+                    return str(row[idx]).strip()
+
+                for row in rows1[1:]:
+                    district = _safe_str(row, col_district)
+                    if not district or "横山" not in district:
+                        continue
+                    retry_details.append({
+                        "district":         district,
+                        "retry_count":      _safe_str(row, col_retry),
+                        "broadband_account": _safe_str(row, col_account),
+                        "is_global_user":   _safe_str(row, col_global),
+                        "customer_contact":  _safe_str(row, col_contact),
+                        "construction_address": _safe_str(row, col_address),
+                        "days_elapsed":     _safe_str(row, col_days),
+                        "handler_name":      _safe_str(row, col_handler),
+                        "complaint_content": _safe_str(row, col_complaint),
+                    })
+
+        # ── 3. 解析"预警2催修未恢复"sheet（客户催修明细）──
+        repair_details = []
+        if "预警2催修未恢复" in wb.sheetnames:
+            ws2 = wb["预警2催修未恢复"]
+            rows2 = list(ws2.iter_rows(values_only=True))
+            if rows2 and len(rows2) > 1:
+                header2 = rows2[0]
+                col_map2 = {}
+                for i, cell in enumerate(header2):
+                    if cell:
+                        col_map2[str(cell).strip()] = i
+
+                col_district2  = col_map2.get("县区")
+                col_account2  = col_map2.get("账号")
+                col_call_num  = col_map2.get("来电号码")
+                col_address2  = col_map2.get("地址")
+                col_reg_date  = col_map2.get("登记日期")
+                col_repair_count = col_map2.get("催修次数") or col_map2.get("呼入类型")
+
+                def _safe_str2(row, idx):
+                    if idx is None or idx >= len(row) or row[idx] is None:
+                        return ""
+                    return str(row[idx]).strip()
+
+                for row in rows2[1:]:
+                    district = _safe_str2(row, col_district2)
+                    if not district or "横山" not in district:
+                        continue
+                    repair_details.append({
+                        "district":      district,
+                        "repair_count":  _safe_str2(row, col_repair_count),
+                        "account":       _safe_str2(row, col_account2),
+                        "call_number":   _safe_str2(row, col_call_num),
+                        "address":       _safe_str2(row, col_address2),
+                        "register_date": _safe_str2(row, col_reg_date),
+                    })
+
+        wb.close()
+        logger.info(f"重投预警工单梳理: 解析完成, summary={summary is not None}, retry={len(retry_details)}条, repair={len(repair_details)}条")
+        return {
+            "summary": summary,
+            "retry_details": retry_details,
+            "repair_details": repair_details,
+            "filename": filename,
+            "report_date": report_date,
+        }
+
+    except Exception as e:
+        logger.error(f"重投预警工单梳理解析失败: {e}", exc_info=True)
+        return {"summary": None, "retry_details": [], "repair_details": [], "filename": filename, "report_date": report_date}
+
+
+async def reparse_retry_warning(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """重新解析重投预警工单梳理文件，更新数据库。"""
+    if directory is None:
+        directory = settings.watch_dir
+
+    result = await asyncio.to_thread(_parse_retry_warning_files, directory)
+
+    from app.core.models import RetryWarningSummary, RetryWarningDetail, CustomerRepairDetail
+    from sqlalchemy import delete as _delete
+
+    # 删除旧数据
+    await db.execute(_delete(RetryWarningSummary))
+    await db.execute(_delete(RetryWarningDetail))
+    await db.execute(_delete(CustomerRepairDetail))
+
+    summary_count = 0
+    if result["summary"]:
+        s = result["summary"]
+        rws = RetryWarningSummary(
+            report_date=result["report_date"] or "",
+            district=s["district"],
+            retry_2_times=s["retry_2_times"],
+            retry_3_times=s["retry_3_times"],
+            retry_4plus_times=s["retry_4plus_times"],
+            total_in_transit=s["total_in_transit"],
+            daily_closed=s["daily_closed"],
+            repair_total=s["repair_total"],
+            repair_in_transit=s["repair_in_transit"],
+            repair_closed=s["repair_closed"],
+        )
+        db.add(rws)
+        summary_count = 1
+
+    # 保存重投预警明细
+    retry_count = 0
+    for d in result.get("retry_details", []):
+        rwd = RetryWarningDetail(
+            district=d["district"],
+            retry_count=d["retry_count"],
+            broadband_account=d["broadband_account"],
+            is_global_user=d["is_global_user"],
+            customer_contact=d["customer_contact"],
+            construction_address=d["construction_address"],
+            days_elapsed=d["days_elapsed"],
+            handler_name=d["handler_name"],
+            complaint_content=d["complaint_content"],
+        )
+        db.add(rwd)
+        retry_count += 1
+
+    # 保存客户催修明细
+    repair_count = 0
+    for d in result.get("repair_details", []):
+        crd = CustomerRepairDetail(
+            district=d["district"],
+            repair_count=d["repair_count"],
+            account=d["account"],
+            call_number=d["call_number"],
+            address=d["address"],
+            register_date=d["register_date"],
+        )
+        db.add(crd)
+        repair_count += 1
+
+    await db.commit()
+
+    return {
+        "summary_parsed": summary_count,
+        "retry_detail_parsed": retry_count,
+        "repair_detail_parsed": repair_count,
+        "filename": result["filename"],
+        "report_date": result["report_date"],
+    }
+
+
+async def get_retry_warning_summary(db: AsyncSession) -> dict:
+    """获取重投预警工单梳理横山卡片指标"""
+    from app.core.models import RetryWarningSummary
+    from sqlalchemy import select
+
+    stmt = select(RetryWarningSummary).order_by(RetryWarningSummary.id.desc()).limit(1)
+    r = await db.execute(stmt)
+    row = r.scalar_one_or_none()
+
+    if not row:
+        return {
+            "district": "横山",
+            "retry_2_times": "",
+            "retry_3_times": "",
+            "retry_4plus_times": "",
+            "total_in_transit": "",
+            "daily_closed": "",
+            "repair_total": "",
+            "repair_in_transit": "",
+            "repair_closed": "",
+            "report_date": "",
+        }
+
+    return {
+        "district": row.district,
+        "retry_2_times": row.retry_2_times,
+        "retry_3_times": row.retry_3_times,
+        "retry_4plus_times": row.retry_4plus_times,
+        "total_in_transit": row.total_in_transit,
+        "daily_closed": row.daily_closed,
+        "repair_total": row.repair_total,
+        "repair_in_transit": row.repair_in_transit,
+        "repair_closed": row.repair_closed,
+        "report_date": row.report_date,
+    }

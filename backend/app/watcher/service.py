@@ -22,6 +22,7 @@ SPECIALIZED_REPORTS = [
     ("企宽装机",       "enterprise-broadband"),
     ("皮站故障",       "pisite-fault"),
     ("线下派单",       "offline-dispatch"),
+    ("重投预警工单梳理", "retry-warning"),
     ("接入层",         "access-layer"),
     ("日报",           "daily-report"),
 ]

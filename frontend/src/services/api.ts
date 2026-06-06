@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailResponse } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailResponse, RetryWarningSummary, RetryWarningDetailResponse, CustomerRepairDetailResponse } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -287,5 +287,27 @@ export const api = {
     if (params?.page) qs.set('page', String(params.page));
     if (params?.page_size) qs.set('page_size', String(params.page_size));
     return fetchJson<OfflineDispatchDetailResponse>(`/reports/offline-dispatch/details?${qs.toString()}`);
+  },
+
+  // ── 重投预警工单梳理 ──
+  getRetryWarningSummary: async () => {
+    return fetchJson<RetryWarningSummary>('/reports/retry-warning/summary');
+  },
+  reparseRetryWarning: async () => {
+    const res = await fetch(`${BASE}/reports/retry-warning/reparse`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
+    return res.json();
+  },
+  getRetryWarningDetails: async (params?: { page?: number; page_size?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.page_size) qs.set('page_size', String(params.page_size));
+    return fetchJson<RetryWarningDetailResponse>(`/reports/retry-warning/retry-details?${qs.toString()}`);
+  },
+  getCustomerRepairDetails: async (params?: { page?: number; page_size?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.page_size) qs.set('page_size', String(params.page_size));
+    return fetchJson<CustomerRepairDetailResponse>(`/reports/retry-warning/repair-details?${qs.toString()}`);
   },
 };

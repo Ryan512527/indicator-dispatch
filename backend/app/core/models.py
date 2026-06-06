@@ -385,3 +385,57 @@ class OfflineDispatchDetail(Base):
     is_vip_customer = Column(String(20), comment="是否重要客户")
     customer_contact = Column(String(100), comment="客户联系方式")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class RetryWarningSummary(Base):
+    """重投预警工单梳理 - 横山汇总指标（来自"预警通报"sheet）"""
+    __tablename__ = "retry_warning_summary"
+
+    id = Column(BigInteger, primary_key=True)
+    report_date = Column(String(50), comment="通报日期")
+    district = Column(String(50), default="横山", comment="区县")
+
+    # 重投86预警
+    retry_2_times = Column(String(50), comment="重投2次在途量")
+    retry_3_times = Column(String(50), comment="重投3次在途量")
+    retry_4plus_times = Column(String(50), comment="重投4次及以上在途量")
+    total_in_transit = Column(String(50), comment="总在途量")
+    daily_closed = Column(String(50), comment="日闭环量")
+
+    # 客户催修
+    repair_total = Column(String(50), comment="催修量")
+    repair_in_transit = Column(String(50), comment="在途催修量")
+    repair_closed = Column(String(50), comment="闭环量")
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class RetryWarningDetail(Base):
+    """重投预警清单明细（来自"预警1清单"sheet，所属区县=横山）"""
+    __tablename__ = "retry_warning_detail"
+
+    id = Column(BigInteger, primary_key=True)
+    district = Column(String(50), comment="所属区县")
+    retry_count = Column(String(50), comment="重投")
+    broadband_account = Column(String(100), comment="宽带帐号")
+    is_global_user = Column(String(50), comment="是否全球通用户")
+    customer_contact = Column(String(100), comment="客户联系方式")
+    construction_address = Column(Text, comment="施工地址")
+    days_elapsed = Column(String(50), comment="历时天数")
+    handler_name = Column(String(50), comment="处理人姓名")
+    complaint_content = Column(Text, comment="投诉内容")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class CustomerRepairDetail(Base):
+    """客户催修清单明细（来自"预警2催修未恢复"sheet，县区=横山）"""
+    __tablename__ = "customer_repair_detail"
+
+    id = Column(BigInteger, primary_key=True)
+    district = Column(String(50), comment="县区")
+    repair_count = Column(String(50), comment="催修次数")
+    account = Column(String(100), comment="账号")
+    call_number = Column(String(100), comment="来电号码")
+    address = Column(Text, comment="地址")
+    register_date = Column(String(50), comment="登记日期")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

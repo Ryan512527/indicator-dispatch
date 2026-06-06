@@ -1799,6 +1799,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 if (rt.name === '线下派单处理情况') {
                   return <OfflineDispatchCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
+                // 重投预警工单梳理用专用卡片
+                if (rt.name === '重投预警工单梳理') {
+                  return <RetryWarningCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
                 return <ReportCard key={rt.id} rt={rt} color={cat.color} onNavigate={onNavigate} />
               })}
             </div>
@@ -2008,6 +2012,108 @@ function OfflineDispatchCard({ onNavigate }: { color: string; onNavigate: (p: Pa
     </div>
   )
 }
+
+// ── 重投预警工单梳理 卡片 ──
+function RetryWarningCard({ onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<RetryWarningSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    ;(api as any).getRetryWarningSummary()
+      .then((data: RetryWarningSummary) => setSummary(data))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  const reportDate = summary?.report_date || ''
+  const r2 = summary?.retry_2_times || '—'
+  const r3 = summary?.retry_3_times || '—'
+  const r4 = summary?.retry_4plus_times || '—'
+  const total = summary?.total_in_transit || '—'
+  const dailyClosed = summary?.daily_closed || '—'
+  const repairTotal = summary?.repair_total || '—'
+  const repairInTransit = summary?.repair_in_transit || '—'
+  const repairClosed = summary?.repair_closed || '—'
+
+  return (
+    <div
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+        cursor: 'pointer',
+        transition: 'box-shadow 0.2s',
+        minWidth: 320,
+      }}
+      onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)')}
+      onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.08)')}
+      onClick={() => onNavigate({ name: 'retry-warning-detail' })}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e' }}>重投预警工单梳理</span>
+        {reportDate && (
+          <span style={{ fontSize: 11, color: '#999' }}>{reportDate.slice(5)}</span>
+        )}
+      </div>
+
+      {/* 重投86预警 */}
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 6, borderBottom: '1px solid #f0f0f0', paddingBottom: 4 }}>
+          重投86预警
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4, marginBottom: 4 }}>
+          {[
+            { label: '2次在途', value: r2, color: '#f59e0b' },
+            { label: '3次在途', value: r3, color: '#f97316' },
+            { label: '4次+在途', value: r4, color: '#ef4444' },
+          ].map(item => (
+            <div key={item.label} style={{ textAlign: 'center', background: '#fffbeb', borderRadius: 6, padding: '6px 2px' }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: item.color, lineHeight: 1.2 }}>{loading ? '...' : item.value}</div>
+              <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>{item.label}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4 }}>
+          {[
+            { label: '总在途', value: total, color: '#2563eb' },
+            { label: '日闭环', value: dailyClosed, color: '#16a34a' },
+          ].map(item => (
+            <div key={item.label} style={{ textAlign: 'center', background: '#f0f9ff', borderRadius: 6, padding: '6px 2px' }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: item.color, lineHeight: 1.2 }}>{loading ? '...' : item.value}</div>
+              <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>{item.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 客户催修 */}
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#666', marginBottom: 6, borderBottom: '1px solid #f0f0f0', paddingBottom: 4 }}>
+          客户催修
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4 }}>
+          {[
+            { label: '催修量', value: repairTotal, color: '#7c3aed' },
+            { label: '在途催修', value: repairInTransit, color: '#ea580c' },
+            { label: '闭环量', value: repairClosed, color: '#16a34a' },
+          ].map(item => (
+            <div key={item.label} style={{ textAlign: 'center', background: '#faf5ff', borderRadius: 6, padding: '6px 2px' }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: item.color, lineHeight: 1.2 }}>{loading ? '...' : item.value}</div>
+              <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>{item.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {loading && (
+        <div style={{ textAlign: 'center', padding: '6px 0 0', fontSize: 11, color: '#bbb' }}>加载中...</div>
+      )}
+    </div>
+  )
+}
+
 
 // ── 2200000及时率通报 详情页 ──
 function Complaint2200000DetailPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
