@@ -1,0 +1,34 @@
+# Web
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# Database
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+
+# Redis / Queue
+redis==5.2.1
+rq==1.16.2
+
+# File monitoring
+watchdog==6.0.0
+
+# Data parsing
+pandas==2.2.3
+openpyxl==3.1.5
+python-multipart==0.0.19
+
+# AI / LLM
+langchain==0.3.13
+langchain-openai==0.2.13
+langchain-community==0.3.12
+httpx==0.28.1
+
+# WxPusher
+wxpusher==2.3.0
+
+# Utils
+python-dotenv==1.0.1
+pydantic==2.10.3
+pydantic-settings==2.7.0

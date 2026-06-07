@@ -1,0 +1,70 @@
+import { useState } from 'react'
+import { Layout } from './components/Layout'
+import { Dashboard } from './pages/Dashboard'
+import { OutageDetail } from './pages/OutageDetail'
+import { AIChat } from './pages/AIChat'
+import { ReportDetail } from './pages/ReportDetail'
+import { WirelessOutageDetail } from './pages/WirelessOutageDetail'
+import { PisiteFaultDetail } from './pages/PisiteFaultDetail'
+import { AccessLayerFaultDetail } from './pages/AccessLayerFaultDetail'
+import { EnterpriseBroadbandBacklog } from './pages/EnterpriseBroadbandBacklog'
+import { DailyReportDetail } from './pages/DailyReportDetail'
+import { CityWorkloadDetail } from './pages/CityWorkloadDetail'
+import { FiveCategoryWithdrawalDetail } from './pages/FiveCategoryWithdrawalDetail'
+import { OfflineDispatchDetail } from './pages/OfflineDispatchDetail'
+import { RetryWarningDetailPage } from './pages/RetryWarningDetail'
+import { EnterpriseBroadbandFaultDetail } from './pages/EnterpriseBroadbandFaultDetail'
+import type { Page } from './types'
+
+
+export default function App() {
+  const [page, setPage] = useState<Page>({ name: 'dashboard' })
+
+  return (
+    <Layout
+      currentPath={
+        page.name === 'dashboard' ? '/dashboard' :
+        page.name === 'ai-chat' ? '/ai' :
+        page.name === 'report-detail' ? `/reports/${page.params?.id}` :
+        page.name === 'wireless-outage-detail' ? '/wireless-outage' :
+        page.name === 'pisite-fault-detail' ? '/pisite-fault' :
+        page.name === 'access-layer-fault-detail' ? '/access-layer-fault' :
+        page.name === 'enterprise-broadband-backlog' ? '/enterprise-broadband-backlog' :
+        page.name === 'daily-report-detail' ? '/daily-report-detail' :
+        page.name === 'city-workload-detail' ? '/city-workload-detail' :
+        page.name === 'five-category-withdrawal-detail' ? '/five-category-withdrawal' :
+        page.name === 'offline-dispatch-detail' ? '/offline-dispatch' :
+        page.name === 'complaint-10086-detail' ? '/complaint-10086' :
+        page.name === 'complaint-2200000-detail' ? '/complaint-2200000' :
+        page.name === 'retry-warning-detail' ? '/retry-warning' :
+        page.name === 'enterprise-broadband-fault-detail' ? '/enterprise-broadband-fault' :
+        ''
+      }
+      onNavigate={(p: string | Page) => {
+        if (typeof p === 'string') {
+          if (p === '/dashboard') setPage({ name: 'dashboard' })
+          else if (p === '/ai') setPage({ name: 'ai-chat' })
+        } else {
+          setPage(p)
+        }
+      }}
+    >
+      {page.name === 'dashboard' && <Dashboard onNavigate={p => setPage(p)} />}
+      {page.name === 'detail' && <OutageDetail params={page.params || {}} onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'ai-chat' && <AIChat />}
+      {page.name === 'report-detail' && <ReportDetail reportTypeId={page.params?.id || 0} />}
+      {page.name === 'wireless-outage-detail' && <WirelessOutageDetail onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'pisite-fault-detail' && <PisiteFaultDetail onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'access-layer-fault-detail' && <AccessLayerFaultDetail onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'enterprise-broadband-backlog' && <EnterpriseBroadbandBacklog onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'daily-report-detail' && <DailyReportDetail onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'city-workload-detail' && <CityWorkloadDetail onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'five-category-withdrawal-detail' && <FiveCategoryWithdrawalDetail onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'offline-dispatch-detail' && <OfflineDispatchDetail onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'complaint-10086-detail' && <Dashboard onNavigate={p => setPage(p)} initialPage="complaint-10086-detail" />}
+      {page.name === 'complaint-2200000-detail' && <Dashboard onNavigate={p => setPage(p)} initialPage="complaint-2200000-detail" />}
+      {page.name === 'retry-warning-detail' && <RetryWarningDetailPage onNavigate={p => setPage(p)} />}
+      {page.name === 'enterprise-broadband-fault-detail' && <EnterpriseBroadbandFaultDetail onBack={() => setPage({ name: 'dashboard' })} />}
+    </Layout>
+  )
+}

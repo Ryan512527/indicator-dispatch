@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv/
+venv/
+node_modules/
+dist/
+.DS_Store
+.workbuddy/
+data/
+.github_token

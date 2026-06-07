@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: indicator-db
+    environment:
+      POSTGRES_DB: indicator_db
+      POSTGRES_USER: indicator
+      POSTGRES_PASSWORD: indicator_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U indicator -d indicator_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: indicator-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: indicator-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./data:/data
+    environment:
+      DATABASE_URL: postgresql+asyncpg://indicator:indicator_pass@postgres:5432/indicator_db
+      REDIS_URL: redis://redis:6379/0
+      WATCH_DIR: /data
+      LLM_API_KEY: ""
+      LLM_BASE_URL: ""
+      LLM_MODEL: ""
+      WXPUSHER_APP_TOKEN: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api
+    container_name: indicator-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_BASE_URL: /api
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
