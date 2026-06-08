@@ -2644,18 +2644,30 @@ function Complaint2200000DetailPage({ onNavigate }: { onNavigate: (p: Page) => v
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [sortBy, setSortBy] = useState<string | undefined>(undefined)
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const pageSize = 50
 
   useEffect(() => {
     setLoading(true)
-    ;(api as any).getComplaint2200000Details(page, pageSize)
+    ;(api as any).getComplaint2200000Details(page, pageSize, sortBy, sortOrder)
       .then((data: any) => {
         setRecords(data.records as Complaint2200000DetailRecord[])
         setTotal(data.total as number)
       })
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [page])
+  }, [page, sortBy, sortOrder])
+
+  const handleSort = (key: string) => {
+    if (sortBy === key) {
+      setSortOrder(o => o === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(key)
+      setSortOrder('asc')
+    }
+    setPage(1)
+  }
 
   const totalPages = Math.ceil(total / pageSize)
 
@@ -2725,8 +2737,21 @@ function Complaint2200000DetailPage({ onNavigate }: { onNavigate: (p: Page) => v
                     <th key={col.key} style={{
                       padding: '8px 10px', fontWeight: 600, color: '#666',
                       textAlign: 'left', whiteSpace: 'nowrap',
+                      ...(col.key === 'timeout_deadline' ? { cursor: 'pointer', userSelect: 'none' } : {}),
                     }}>
-                      {col.label}
+                      <span
+                        onClick={() => col.key === 'timeout_deadline' ? handleSort(col.key) : undefined}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                      >
+                        {col.label}
+                        {col.key === 'timeout_deadline' && (
+                          <span style={{ fontSize: 11, color: sortBy === col.key ? '#1677ff' : '#bbb' }}>
+                            {sortBy === col.key
+                              ? (sortOrder === 'asc' ? '↑' : '↓')
+                              : '↕️'}
+                          </span>
+                        )}
+                      </span>
                     </th>
                   ))}
                 </tr>

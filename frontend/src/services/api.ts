@@ -265,10 +265,11 @@ export const api = {
   getComplaint2200000Summary: async () => {
     return fetchJson<Complaint2200000Summary>('/reports/complaint-2200000/summary');
   },
-  getComplaint2200000Details: async (page = 1, pageSize = 50) => {
-    return fetchJson<{ records: Complaint2200000DetailRecord[]; total: number; page: number; page_size: number }>(
-      `/reports/complaint-2200000/detail?page=${page}&page_size=${pageSize}`
-    );
+  getComplaint2200000Details: async (page = 1, pageSize = 50, sortBy?: string, order?: string) => {
+    let url = `/reports/complaint-2200000/detail?page=${page}&page_size=${pageSize}`;
+    if (sortBy) url += `&sort_by=${encodeURIComponent(sortBy)}`;
+    if (order) url += `&order=${encodeURIComponent(order)}`;
+    return fetchJson<{ records: Complaint2200000DetailRecord[]; total: number; page: number; page_size: number }>(url);
   },
   reparseComplaint2200000: async () => {
     const res = await fetch(`${BASE}/reports/complaint-2200000/reparse`, { method: 'POST' });

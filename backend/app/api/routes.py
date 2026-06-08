@@ -593,11 +593,16 @@ async def complaint_2200000_summary(
 async def complaint_2200000_detail(
     page: int = 1,
     page_size: int = 50,
+    sort_by: Optional[str] = None,
+    order: str = "asc",
     db: AsyncSession = Depends(get_db),
 ):
-    """分页获取2200000及时率通报横山明细"""
+    """分页获取2200000及时率通报横山明细
+    - sort_by: 排序字段（如 timeout_deadline），为 None 时不排序
+    - order: asc=升序（最早在前），desc=降序（最新在前）
+    """
     from app.services.report_scanner import get_complaint_2200000_details
-    return await get_complaint_2200000_details(db, page, page_size)
+    return await get_complaint_2200000_details(db, page, page_size, sort_by=sort_by, order=order)
 
 
 @router.post("/reports/complaint-2200000/reparse")

@@ -4450,8 +4450,13 @@ async def get_complaint_2200000_details(
     db: AsyncSession,
     page: int = 1,
     page_size: int = 50,
+    sort_by: Optional[str] = None,
+    order: str = "asc",
 ) -> dict:
-    """分页获取2200000及时率通报横山明细"""
+    """分页获取2200000及时率通报横山明细
+    - sort_by: 排序字段名（对应 Complaint2200000Detail 的列名），None 时不排序
+    - order: asc=升序，desc=降序
+    """
     from app.core.models import Complaint2200000Detail
     from sqlalchemy import func as _func
 
@@ -4460,12 +4465,19 @@ async def get_complaint_2200000_details(
     total = r.scalar() or 0
 
     offset = (page - 1) * page_size
-    data_stmt = (
-        select(Complaint2200000Detail)
-        .order_by(Complaint2200000Detail.id.asc())
-        .offset(offset)
-        .limit(page_size)
-    )
+    data_stmt = select(Complaint2200000Detail)
+
+    # 动态排序
+    if sort_by and hasattr(Complaint2200000Detail, sort_by):
+        col = getattr(Complaint2200000Detail, sort_by)
+        if order == "desc":
+            data_stmt = data_stmt.order_by(col.desc())
+        else:
+            data_stmt = data_stmt.order_by(col.asc())
+    else:
+        data_stmt = data_stmt.order_by(Complaint2200000Detail.id.asc())
+
+    data_stmt = data_stmt.offset(offset).limit(page_size)
     r2 = await db.execute(data_stmt)
     rows = r2.scalars().all()
 
