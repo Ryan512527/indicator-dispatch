@@ -1,0 +1,45 @@
+# ============================================
+# 开发环境 — 用于开发和测试，不影响生产
+# 使用方式：
+#   启动开发环境：docker compose -f docker-compose.dev.yml up -d --build
+#   停止开发环境：docker compose -f docker-compose.dev.yml down
+# ============================================
+
+services:
+  # 开发后端 — 独立端口 8001，开启热重载
+  backend-dev:
+    build: ./backend
+    container_name: indicator-backend-dev
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./backend:/app       # 代码同步 + 热重载
+    environment:
+      DATABASE_URL: postgresql+asyncpg://indicator:indicator_pass@postgres:5432/indicator_db
+      REDIS_URL: redis://redis:6379/0
+      WATCH_DIR: ""           # 开发环境不自动处理文件，避免与生产冲突
+      LLM_API_KEY: ""
+      LLM_BASE_URL: ""
+      LLM_MODEL: ""
+      WXPUSHER_APP_TOKEN: ""
+      DEV_MODE: "true"        # 标记开发模式
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 开发前端 — 独立端口 3001
+  frontend-dev:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api
+    container_name: indicator-frontend-dev
+    ports:
+      - "3001:3000"
+    environment:
+      VITE_API_BASE_URL: /api
+    depends_on:
+      - backend-dev
