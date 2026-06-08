@@ -876,6 +876,28 @@ async def enterprise_broadband_low_light_reparse(
     return {"report_type": "企宽弱光通报", **result}
 
 
+# ── 家宽重投2次清单 API ──
+
+@router.get("/reports/broadband-redelivery2/summary")
+async def broadband_redelivery2_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取家宽重投2次横山卡片指标（8项：重投2次在途量、2次全球通量 等）"""
+    from app.services.report_scanner import get_broadband_redelivery2_summary
+    return await get_broadband_redelivery2_summary(db)
+
+
+@router.post("/reports/broadband-redelivery2/reparse")
+async def broadband_redelivery2_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析家宽重投2次清单，提取横山最新8项指标"""
+    from app.services.report_scanner import reparse_broadband_redelivery2
+    result = await reparse_broadband_redelivery2(db, directory)
+    return {"report_type": "家宽重投2次清单明细", **result}
+
+
 # ── 通知 API ──
 
 @router.get("/notifications")

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailRecord, RetryWarningSummary, EnterpriseBroadbandFaultSummary, PoorQualityWorkOrderSummary, EnterpriseBroadbandLowLightSummary } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailRecord, RetryWarningSummary, EnterpriseBroadbandFaultSummary, PoorQualityWorkOrderSummary, EnterpriseBroadbandLowLightSummary, BroadbandRedelivery2Summary } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -2192,6 +2192,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 if (rt.name === '2200000及时率通报') {
                   return <Complaint2200000Card key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
+                // 家宽重投2次清单用专用卡片
+                if (rt.name === '家宽重投2次清单明细') {
+                  return <BroadbandRedelivery2Card key={rt.id} color={cat.color} />
+                }
                 // 线下派单处理情况用专用卡片
                 if (rt.name === '线下派单处理情况') {
                   return <OfflineDispatchCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
@@ -2336,6 +2340,95 @@ function Complaint2200000Card({ onNavigate }: { color: string; onNavigate: (p: P
             📄 {latestFilename || (reportDate ? `通报 ${reportDate}` : '—')}
           </span>
           <span style={{ color: '#3b82f6' }}>点击查看清单 →</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── 家宽重投2次 卡片 ──
+function BroadbandRedelivery2Card({ color }: { color: string }) {
+  const [summary, setSummary] = useState<BroadbandRedelivery2Summary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    ;(api as any).getBroadbandRedelivery2Summary()
+      .then((data: BroadbandRedelivery2Summary) => setSummary(data))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '16px 20px',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.08)', minWidth: 260,
+      }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e' }}>家宽重投2次</div>
+        <div style={{ textAlign: 'center', padding: 20, color: '#bbb', fontSize: 13 }}>加载中...</div>
+      </div>
+    )
+  }
+
+  const reportDate = summary?.report_date || ''
+  const latestFilename = summary?.latest_filename || ''
+  const timePeriod = summary?.time_period || ''
+
+  const metrics = [
+    { label: '重投2次在途量', value: summary?.redelivery2_in_transit || '—', bg: '#fef2f2', color: '#dc2626' },
+    { label: '2次全球通量', value: summary?.global_tong_2 || '—', bg: '#fff7ed', color: '#ea580c' },
+    { label: '重投3次', value: summary?.redelivery3 || '—', bg: '#fef2f2', color: '#dc2626' },
+    { label: '3次全球通量', value: summary?.global_tong_3 || '—', bg: '#fff7ed', color: '#ea580c' },
+    { label: '重投4次及以上', value: summary?.redelivery4_plus || '—', bg: '#fef2f2', color: '#dc2626' },
+    { label: '4次全球通量', value: summary?.global_tong_4 || '—', bg: '#fff7ed', color: '#ea580c' },
+    { label: '总在途重投量', value: summary?.total_in_transit || '—', bg: '#eff6ff', color: '#2563eb' },
+    { label: '重投2次处理量', value: summary?.redelivery2_processed || '—', bg: '#f0fdf4', color: '#16a34a' },
+  ]
+
+  return (
+    <div style={{
+      background: '#fff',
+      borderRadius: 12,
+      padding: '16px 20px',
+      boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+      minWidth: 260,
+    }}>
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e' }}>家宽重投2次</span>
+          <span style={{
+            fontSize: 10, background: '#dbeafe', color: '#2563eb',
+            padding: '2px 6px', borderRadius: 4, fontWeight: 500,
+          }}>横山</span>
+        </div>
+        <span style={{ fontSize: 11, color: '#999' }}>
+          {reportDate ? `${reportDate.slice(5)} ${timePeriod}` : ''}
+        </span>
+      </div>
+
+      {/* 8项指标 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6 }}>
+        {metrics.map((m, i) => (
+          <div key={i} style={{
+            background: m.bg,
+            borderRadius: 6,
+            padding: '6px 8px',
+            textAlign: 'center',
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: m.color, lineHeight: 1.2 }}>
+              {m.value}
+            </div>
+            <div style={{ fontSize: 10, color: '#888', marginTop: 1 }}>{m.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 底部信息 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 10 }}>
+        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          📄 {latestFilename || (reportDate ? `通报 ${reportDate}` : '—')}
         </div>
       </div>
     </div>

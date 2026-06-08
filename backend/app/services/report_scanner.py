@@ -6362,3 +6362,304 @@ async def get_enterprise_broadband_low_light_details(
         "page": page,
         "page_size": page_size,
     }
+
+
+# ════════════════════════════════════════════════════════════════
+# ── 家宽重投2次清单 解析 ──
+# ════════════════════════════════════════════════════════════════
+
+def _parse_broadband_redelivery2_files(latest_file: str, filename: str) -> dict:
+    """解析家宽重投2次清单「12-15-18点通报」sheet，提取横山最新时点8项指标"""
+    import openpyxl
+
+    wb = openpyxl.load_workbook(latest_file, read_only=True, data_only=True)
+
+    if "12-15-18点通报" not in wb.sheetnames:
+        wb.close()
+        raise ValueError("未找到 sheet '12-15-18点通报'")
+
+    ws = wb["12-15-18点通报"]
+    rows_data = list(ws.iter_rows(values_only=True))
+    wb.close()
+
+    logger.info(f"家宽重投2次: 12-15-18点通报 sheet 共 {len(rows_data)} 行")
+
+    # ── 解析sheet结构 ──
+    # 每个日通报块包含 4 个时间段: 12:00, 15:00, 16:30, 18:00
+    # 每时间段 12 列: 县区|重投2次在途量|2次全球通量|重投3次|3次全球通量|重投4次及以上|4次全球通量|总在途重投量|全球通总积压|重投2次处理量|闭环情况|-
+
+    # 找出所有日通报标题行（含"闭环情况"）
+    day_blocks = []  # [title_row_idx, ...]
+    for idx, row in enumerate(rows_data):
+        if not row:
+            continue
+        row_text = " ".join(str(c) for c in row if c)
+        if "闭环情况" in row_text and "截至" in row_text:
+            day_blocks.append(idx)
+
+    if not day_blocks:
+        raise ValueError("未找到日通报数据块（含'闭环情况'的标题行）")
+
+    logger.info(f"家宽重投2次: 找到 {len(day_blocks)} 个日通报块, 标题行索引: {day_blocks}")
+
+    # 取最后一个日通报块
+    last_block_title_row_idx = day_blocks[-1]
+    title_row = rows_data[last_block_title_row_idx]
+
+    # 统计标题行中的列分隔符("-")数量 → 时间段数
+    dash_count = sum(1 for c in title_row if c is not None and str(c).strip() == "-")
+    periods_count = max(dash_count, 1)
+    if periods_count > 4:
+        periods_count = 4  # 最多4个时间段
+    if periods_count < 1:
+        periods_count = 4  # 默认
+
+    logger.info(f"家宽重投2次: 最新日块有 {periods_count} 个时间段")
+
+    BLOCK_COLS = 12  # 每个时间段占12列
+
+    # 找到该块的表头行（紧接标题行之后，含"重投2次在途量"）
+    header_row_idx = None
+    for offset in range(1, 20):
+        check_idx = last_block_title_row_idx + offset
+        if check_idx >= len(rows_data):
+            break
+        check_row = rows_data[check_idx]
+        if not check_row:
+            continue
+        check_text = " ".join(str(c) for c in check_row if c)
+        if "重投2次在途量" in check_text:
+            header_row_idx = check_idx
+            break
+
+    if header_row_idx is None:
+        raise ValueError("未找到表头行（含'重投2次在途量'）")
+
+    # 找到该块的数据结束行（"全市"行或遇到空行/下一块标题）
+    city_row_idx = None
+    for offset in range(1, 25):
+        check_idx = header_row_idx + offset
+        if check_idx >= len(rows_data):
+            break
+        check_row = rows_data[check_idx]
+        if not check_row:
+            city_row_idx = check_idx - 1
+            break
+        first_val = str(check_row[0]).strip() if check_row[0] else ""
+        if "全市" in first_val:
+            city_row_idx = check_idx
+            break
+
+    if city_row_idx is None:
+        city_row_idx = min(header_row_idx + 20, len(rows_data) - 1)
+
+    logger.info(f"家宽重投2次: 表头行={header_row_idx}, 全市行={city_row_idx}")
+
+    # ── 取最后一个时间段（最新时点）的数据 ──
+    last_period_start_col = (periods_count - 1) * BLOCK_COLS
+
+    # 指标列在时间段内的偏移
+    METRIC_COL_OFFSETS = {
+        "redelivery2_in_transit": 1,   # 重投2次在途量
+        "global_tong_2": 2,            # 2次全球通量
+        "redelivery3": 3,              # 重投3次
+        "global_tong_3": 4,            # 3次全球通量
+        "redelivery4_plus": 5,         # 重投4次及以上
+        "global_tong_4": 6,            # 4次全球通量
+        "total_in_transit": 7,         # 总在途重投量
+        "redelivery2_processed": 9,    # 重投2次处理量
+    }
+
+    def safe_int_str(val):
+        """安全转整数字符串"""
+        if val is None:
+            return "0"
+        if isinstance(val, (int, float)):
+            if val == int(val):
+                return str(int(val))
+            return str(val).strip()
+        return str(val).strip()
+
+    hengshan_data = None
+    import re
+    title_text = str(title_row[0]) if title_row[0] else ""
+    date_match = re.search(r'截至(\d+)日', title_text)
+    report_date_from_title = ""
+    if date_match:
+        day_num = date_match.group(1)
+        month_match = re.search(r'(\d+)月(\d+)日', filename)
+        if month_match:
+            report_date_from_title = f"2026-{int(month_match.group(1)):02d}-{int(day_num):02d}"
+        else:
+            report_date_from_title = f"2026-06-{int(day_num):02d}"
+
+    # 在数据行中找横山
+    for offset in range(1, city_row_idx - header_row_idx + 1):
+        data_idx = header_row_idx + offset
+        if data_idx >= len(rows_data):
+            break
+        row = rows_data[data_idx]
+        if not row:
+            continue
+
+        name_col = last_period_start_col
+        if name_col >= len(row):
+            continue
+        name_val = str(row[name_col]).strip() if row[name_col] else ""
+
+        if "横山" in name_val:
+            hengshan_data = {}
+            for key, offset_in_block in METRIC_COL_OFFSETS.items():
+                col = last_period_start_col + offset_in_block
+                if col < len(row):
+                    hengshan_data[key] = safe_int_str(row[col])
+                else:
+                    hengshan_data[key] = "0"
+            break
+
+    if not hengshan_data:
+        raise ValueError(f"未找到横山数据（日期: {report_date_from_title}）")
+
+    return {
+        "summary": hengshan_data,
+        "report_date": report_date_from_title,
+        "filename": filename,
+        "time_period": "18:00",
+    }
+
+
+def _parse_broadband_redelivery2_from_dir(directory: str) -> dict:
+    """从目录中查找最新家宽重投2次清单文件并解析"""
+    candidates = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if "家宽重投2次清单" in f and not f.startswith("~$"):
+                fp = os.path.join(root, f)
+                candidates.append((os.path.getmtime(fp), fp, f))
+
+    if not candidates:
+        return {"error": "未找到含'家宽重投2次清单'的报表文件"}
+
+    candidates.sort(reverse=True)
+    latest_file = candidates[0][1]
+    filename = candidates[0][2]
+
+    logger.info(f"家宽重投2次 reparse: 使用文件 {filename}")
+
+    return _parse_broadband_redelivery2_files(latest_file, filename)
+
+
+async def reparse_broadband_redelivery2(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """重新解析家宽重投2次清单，提取横山最新8项指标"""
+    from app.core.models import BroadbandRedelivery2Summary, ReportFile, ReportType
+
+    if directory is None:
+        directory = settings.watch_dir
+
+    # 在线程池中解析文件
+    result = await asyncio.to_thread(_parse_broadband_redelivery2_from_dir, directory)
+
+    if "error" in result:
+        return result
+    summary_data = result["summary"]
+    filename = result.get("filename", "")
+
+    # 删除旧数据
+    stmt = delete(BroadbandRedelivery2Summary)
+    await db.execute(stmt)
+
+    # 创建新记录
+    new_summary = BroadbandRedelivery2Summary(
+        report_date=result["report_date"],
+        district="横山",
+        latest_filename=filename,
+        time_period=result["time_period"],
+        redelivery2_in_transit=summary_data.get("redelivery2_in_transit", ""),
+        global_tong_2=summary_data.get("global_tong_2", ""),
+        redelivery3=summary_data.get("redelivery3", ""),
+        global_tong_3=summary_data.get("global_tong_3", ""),
+        redelivery4_plus=summary_data.get("redelivery4_plus", ""),
+        global_tong_4=summary_data.get("global_tong_4", ""),
+        total_in_transit=summary_data.get("total_in_transit", ""),
+        redelivery2_processed=summary_data.get("redelivery2_processed", ""),
+    )
+    db.add(new_summary)
+
+    # 更新或创建 ReportFile 记录（确保 ReportType 存在）
+    rt_result = await db.execute(
+        select(ReportType).where(ReportType.name == "家宽重投2次清单明细")
+    )
+    rt = rt_result.scalar_one_or_none()
+    if not rt:
+        rt = ReportType(name="家宽重投2次清单明细", category="")
+        db.add(rt)
+        await db.flush()
+    if rt:
+        r4_result = await db.execute(
+            select(ReportFile).where(ReportFile.report_type_id == rt.id)
+            .order_by(ReportFile.created_at.desc()).limit(1)
+        )
+        existing = r4_result.scalar_one_or_none()
+        if existing:
+            existing.filename = filename
+            existing.created_at = datetime.now(timezone.utc)
+        else:
+            db.add(ReportFile(
+                report_type_id=rt.id,
+                filename=filename,
+                created_at=datetime.now(timezone.utc),
+            ))
+
+    await db.commit()
+
+    return {
+        "summary_parsed": 1,
+        "filename": filename,
+        "report_date": result["report_date"],
+        "time_period": result["time_period"],
+    }
+
+
+async def get_broadband_redelivery2_summary(db: AsyncSession) -> dict:
+    """获取家宽重投2次横山最新8项卡片指标"""
+    from app.core.models import BroadbandRedelivery2Summary
+
+    result = await db.execute(
+        select(BroadbandRedelivery2Summary)
+        .order_by(BroadbandRedelivery2Summary.created_at.desc())
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+
+    default = {
+        "district": "横山",
+        "redelivery2_in_transit": "—",
+        "global_tong_2": "—",
+        "redelivery3": "—",
+        "global_tong_3": "—",
+        "redelivery4_plus": "—",
+        "global_tong_4": "—",
+        "total_in_transit": "—",
+        "redelivery2_processed": "—",
+        "report_date": "",
+        "time_period": "",
+        "latest_filename": "",
+    }
+
+    if not row:
+        return default
+
+    return {
+        "district": row.district or "横山",
+        "redelivery2_in_transit": row.redelivery2_in_transit,
+        "global_tong_2": row.global_tong_2,
+        "redelivery3": row.redelivery3,
+        "global_tong_3": row.global_tong_3,
+        "redelivery4_plus": row.redelivery4_plus,
+        "global_tong_4": row.global_tong_4,
+        "total_in_transit": row.total_in_transit,
+        "redelivery2_processed": row.redelivery2_processed,
+        "report_date": row.report_date,
+        "time_period": row.time_period,
+        "latest_filename": row.latest_filename,
+    }

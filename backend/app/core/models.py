@@ -556,6 +556,30 @@ class EnterpriseBroadbandLowLightRecord(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+# ── 家宽重投2次清单模型 ──
+
+class BroadbandRedelivery2Summary(Base):
+    """家宽重投2次清单 — 横山汇总（来自"12-15-18点通报"sheet 最新时点）
+    字段：重投2次在途量、2次全球通量、重投3次、3次全球通量、重投4次及以上、4次全球通量、总在途重投量、重投2次处理量
+    """
+    __tablename__ = "broadband_redelivery2_summary"
+
+    id = Column(BigInteger, primary_key=True)
+    report_date = Column(String(50), comment="通报日期")
+    district = Column(String(50), default="横山", comment="区县")
+    latest_filename = Column(String(255), comment="报表文件名")
+    time_period = Column(String(50), comment="时点，如 18:00")
+    redelivery2_in_transit = Column(String(50), comment="重投2次在途量")
+    global_tong_2 = Column(String(50), comment="2次全球通量")
+    redelivery3 = Column(String(50), comment="重投3次")
+    global_tong_3 = Column(String(50), comment="3次全球通量")
+    redelivery4_plus = Column(String(50), comment="重投4次及以上")
+    global_tong_4 = Column(String(50), comment="4次全球通量")
+    total_in_transit = Column(String(50), comment="总在途重投量")
+    redelivery2_processed = Column(String(50), comment="重投2次处理量")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 # ── Notification ──
 
 class Notification(Base):

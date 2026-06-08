@@ -1,48 +1,49 @@
 @echo off
 REM ============================================
-REM 生产环境启动 — 稳定运行，不热重载
-REM 端口: 8000
-REM 用法: 双击运行 或 命令行执行 prod.bat
+REM Production start - stable, no hot-reload
+REM Port: 8000
+REM Usage: double-click or run prod.bat
 REM ============================================
 
 cd /d "%~dp0backend"
 
 echo.
 echo ========================================
-echo   启动生产环境 (端口 8000)
+echo   Starting PRODUCTION (port 8000)
+echo   NO --reload (stable)
 echo ========================================
 echo.
 
-REM 检查端口是否已被占用
+REM Check if port 8000 is already in use
 netstat -ano | findstr ":8000.*LISTENING" >nul 2>&1
 if %errorlevel% equ 0 (
-    echo [警告] 端口 8000 已被占用，请先停止现有进程
+    echo [WARN] Port 8000 is already in use!
     echo.
-    echo 运行: taskkill /F /PID [进程ID]
-    echo 或先执行: prod_stop.bat
+    echo Run: prod_stop.bat first
+    echo Or: taskkill /F /PID [PID]
     pause
     exit /b 1
 )
 
-echo [1/2] 检查前端构建...
+echo [1/2] Checking frontend build...
 if not exist "..\frontend\dist\index.html" (
-    echo [构建] 前端未构建，正在构建...
+    echo [BUILD] Frontend not built, building now...
     cd /d "%~dp0frontend"
     call npm run build
     cd /d "%~dp0backend"
 )
 
-echo [2/2] 启动 uvicorn (无 --reload 模式)...
+echo [2/2] Starting uvicorn (NO --reload)...
 echo.
 
-REM 激活 venv (如果有)
+REM Activate venv if exists
 if exist ".venv\Scripts\activate.bat" (
     call .venv\Scripts\activate.bat
 )
 
-REM 启动 — 注意：没有 --reload，生产稳定运行
+REM Start - NOTE: no --reload for production
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 echo.
-echo 生产环境已停止。
+echo Production server stopped.
 pause

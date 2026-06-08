@@ -456,6 +456,21 @@ export interface EnterpriseBroadbandLowLightResponse {
   page_size: number;
 }
 
+export interface BroadbandRedelivery2Summary {
+  district: string;
+  redelivery2_in_transit: string;
+  global_tong_2: string;
+  redelivery3: string;
+  global_tong_3: string;
+  redelivery4_plus: string;
+  global_tong_4: string;
+  total_in_transit: string;
+  redelivery2_processed: string;
+  report_date: string;
+  time_period: string;
+  latest_filename: string;
+}
+
 export interface Notification {
   id: number;
   report_type: string;

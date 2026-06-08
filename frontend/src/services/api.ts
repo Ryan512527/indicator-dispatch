@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailResponse, RetryWarningSummary, RetryWarningDetailResponse, CustomerRepairDetailResponse, EnterpriseBroadbandFaultSummary, EnterpriseBroadbandFaultRecord, EnterpriseBroadbandFaultResponse, PoorQualityWorkOrderSummary, PoorQualityWorkOrderResponse, EnterpriseBroadbandLowLightSummary, EnterpriseBroadbandLowLightResponse } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailResponse, RetryWarningSummary, RetryWarningDetailResponse, CustomerRepairDetailResponse, EnterpriseBroadbandFaultSummary, EnterpriseBroadbandFaultRecord, EnterpriseBroadbandFaultResponse, PoorQualityWorkOrderSummary, PoorQualityWorkOrderResponse, EnterpriseBroadbandLowLightSummary, EnterpriseBroadbandLowLightResponse, BroadbandRedelivery2Summary } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -381,6 +381,18 @@ export const api = {
 
   reparseEnterpriseBroadbandLowLight: async () => {
     const res = await fetch(`${BASE}/reports/enterprise-broadband-low-light/reparse`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
+    return res.json();
+  },
+
+  // ── 家宽重投2次 API ──
+
+  getBroadbandRedelivery2Summary: async () => {
+    return fetchJson<BroadbandRedelivery2Summary>('/reports/broadband-redelivery2/summary');
+  },
+
+  reparseBroadbandRedelivery2: async () => {
+    const res = await fetch(`${BASE}/reports/broadband-redelivery2/reparse`, { method: 'POST' });
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
     return res.json();
   },
