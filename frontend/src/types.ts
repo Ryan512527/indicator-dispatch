@@ -70,7 +70,8 @@ export type Page =
   | { name: "complaint-2200000-detail" }
   | { name: "enterprise-broadband-fault-detail" }
   | { name: "offline-dispatch-detail" }
-  | { name: "retry-warning-detail" };
+  | { name: "retry-warning-detail" }
+  | { name: "poor-quality-work-order-detail" };
 
 export interface WirelessOutageSummary {
   total: number;
@@ -389,6 +390,34 @@ export interface EnterpriseBroadbandFaultRecord {
 
 export interface EnterpriseBroadbandFaultResponse {
   records: EnterpriseBroadbandFaultRecord[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface PoorQualityWorkOrderSummary {
+  work_order_count: string;
+  completed_count: string;
+  completion_rate: string;
+  community_count: string;
+  report_date: string;
+  latest_filename: string;
+}
+
+export interface PoorQualityWorkOrderRecord {
+  id: number;
+  district: string;
+  work_order_no: string;
+  dispatch_time: string;
+  deadline: string;
+  maintenance_person: string;
+  notes: string;
+  olt_ip: string;
+  olt_port: string;
+}
+
+export interface PoorQualityWorkOrderResponse {
+  records: PoorQualityWorkOrderRecord[];
   total: number;
   page: number;
   page_size: number;

@@ -4,11 +4,11 @@ import type { RetryWarningDetailRecord, CustomerRepairDetailRecord, Page } from 
 
 const RETRY_FIELDS = [
   { key: 'district',         label: '所属区县',   width: '7%' },
-  { key: 'retry_count',      label: '重投',       width: '5%' },
+  { key: 'retry_count',      label: '重投次数',   width: '5%' },
   { key: 'broadband_account', label: '宽带帐号',   width: '11%' },
   { key: 'is_global_user',    label: '是否全球通', width: '8%' },
   { key: 'customer_contact',  label: '客户联系方式', width: '11%' },
-  { key: 'construction_address', label: '施工地址',   width: '32%' },
+  { key: 'construction_address', label: '小区名称',   width: '32%' },
   { key: 'days_elapsed',     label: '历时天数',   width: '8%' },
   { key: 'handler_name',     label: '处理人姓名', width: '8%' },
   { key: 'complaint_content', label: '投诉内容',   width: '10%' },

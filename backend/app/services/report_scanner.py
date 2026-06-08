@@ -4849,6 +4849,8 @@ def _parse_retry_warning_files(directory: str) -> dict:
 
     pattern = os.path.join(directory, "**", "*重投预警工单梳理*")
     files = sorted(glob.glob(pattern, recursive=True), key=os.path.getmtime, reverse=True)
+    # 过滤 Excel 临时文件（~$ 开头）
+    files = [f for f in files if not os.path.basename(f).startswith("~$")]
     if not files:
         return {"summary": None, "retry_details": [], "repair_details": [], "filename": None, "report_date": None}
 
@@ -4903,29 +4905,51 @@ def _parse_retry_warning_files(directory: str) -> dict:
             ws1 = wb["预警1清单"]
             rows1 = list(ws1.iter_rows(values_only=True))
             if rows1 and len(rows1) > 1:
-                # 构建列名→索引映射
-                header = rows1[0]
+                # 搜索表头行（可能有标题行，表头不一定在第0行）
+                header_row_idx1 = None
+                for ri, row in enumerate(rows1):
+                    row_text = " ".join(str(c) for c in row if c)
+                    if "所属区县" in row_text or "重投次数" in row_text:
+                        header_row_idx1 = ri
+                        break
+                if header_row_idx1 is None:
+                    header_row_idx1 = 0
+
+                # 构建列名→索引映射（不覆盖已有key，保留第一个出现的列）
+                header = rows1[header_row_idx1]
                 col_map = {}
                 for i, cell in enumerate(header):
                     if cell:
-                        col_map[str(cell).strip()] = i
+                        key = str(cell).strip()
+                        if key and key not in col_map:
+                            col_map[key] = i
 
-                col_district   = col_map.get("所属区县")
-                col_retry     = col_map.get("重投")
-                col_account   = col_map.get("宽带帐号")
-                col_global    = col_map.get("是否全球通用户") or col_map.get("全球通属性")
-                col_contact    = col_map.get("客户联系方式")
-                col_address   = col_map.get("施工地址")
-                col_days      = col_map.get("历时天数")
-                col_handler   = col_map.get("处理人姓名")
-                col_complaint = col_map.get("投诉内容")
+                # 辅助函数：安全获取列索引（用 is not None 避免列0被 falsy 截断）
+                def _col(*names):
+                    for name in names:
+                        v = col_map.get(name)
+                        if v is not None:
+                            return v
+                    return None
+
+                col_district   = _col("所属区县", "分局")
+                col_retry     = _col("重投次数", "重投")
+                col_account   = _col("宽带帐号", "宽带账号")
+                col_global    = _col("是否全球通用户", "是否全球通", "全球通属性")
+                col_contact    = _col("客户联系方式")
+                col_address   = _col("小区名称", "施工地址")
+                col_days      = _col("历时天数", "超时时限")
+                col_handler   = _col("处理人姓名")
+                col_complaint = _col("投诉内容")
+
+                logger.info(f"重投预警-预警1清单: 表头行={header_row_idx1}, col_retry={col_retry}, col_global={col_global}, col_district={col_district}")
 
                 def _safe_str(row, idx):
                     if idx is None or idx >= len(row) or row[idx] is None:
                         return ""
                     return str(row[idx]).strip()
 
-                for row in rows1[1:]:
+                for row in rows1[header_row_idx1 + 1:]:
                     district = _safe_str(row, col_district)
                     if not district or "横山" not in district:
                         continue
@@ -5529,6 +5553,382 @@ async def get_enterprise_broadband_fault_details(
             "account": row.account,
             "alarm_total": row.alarm_total,
             "alarm_weighted_duration": row.alarm_weighted_duration,
+        })
+
+    return {
+        "records": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+
+# ── 质差小区弱光工单处理完成率横山数据专用处理 ──
+
+# 当月工单清单保留字段（中文列名）
+POOR_QUALITY_WORK_ORDER_DETAIL_FIELDS = [
+    "区县",
+    "工单号",
+    "派单时间",
+    "限定完成时间",
+    "维护人员",
+    "备注",
+    "OLT IP",
+    "OLT接口",
+]
+
+
+def _parse_poor_quality_work_order_file(filepath: str) -> dict:
+    """
+    解析单个"质差小区弱光工单处理完成率"文件。
+    返回 {
+        "summary": {"work_order_count", "completed_count", "completion_rate", "community_count"},
+        "records": [dict],   # 当月工单清单 横山+未及时完工
+        "filename": str,
+        "report_date": str,
+    }
+    """
+    import openpyxl
+    import re
+
+    filename = os.path.basename(filepath)
+    result = {
+        "summary": None,
+        "records": [],
+        "filename": filename,
+        "report_date": None,
+    }
+
+    try:
+        # 从文件名提取日期
+        date_match = re.search(r"(\d{4})[-_]?(\d{1,2})[-_]?(\d{1,2})", filename)
+        if date_match:
+            try:
+                result["report_date"] = f"{date_match.group(1)}-{date_match.group(2).zfill(2)}-{date_match.group(3).zfill(2)}"
+            except Exception:
+                pass
+
+        wb = openpyxl.load_workbook(filepath, data_only=True)
+
+        summary = {
+            "work_order_count": "",
+            "completed_count": "",
+            "completion_rate": "",
+            "community_count": "",
+        }
+
+        # ── 1. 解析"区县弱光工单处理完成率" sheet ──
+        target_sheet = None
+        for sname in wb.sheetnames:
+            if "区县弱光工单处理完成率" in sname or "弱光工单处理完成率" in sname:
+                target_sheet = sname
+                break
+        if not target_sheet and wb.sheetnames:
+            target_sheet = wb.sheetnames[0]
+
+        if target_sheet and target_sheet in wb.sheetnames:
+            ws = wb[target_sheet]
+
+            # 查找真正的表头行（含"区县"列的行，跳过标题行）
+            header_row_idx = 1
+            header = []
+            for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=min(ws.max_row, 10), values_only=True), start=1):
+                row_vals = [str(c or "").strip() for c in row]
+                if any("区县" in v for v in row_vals):
+                    header = row_vals
+                    header_row_idx = r_idx
+                    break
+            if not header:
+                header = [str(c.value or "").strip() for c in next(ws.iter_rows(min_row=1, max_row=1))]
+
+            col_idx = {}
+            for i, h in enumerate(header):
+                if "区县" in h:
+                    col_idx["district"] = i
+                elif "工单数" in h and "累计" not in h:
+                    col_idx["work_order_count"] = i
+                elif "累计回单" in h or "回单数" in h:
+                    col_idx["completed_count"] = i
+                elif "完成率" in h or "完成%" in h or "回单%" in h:
+                    col_idx["completion_rate"] = i
+                elif "涉及小区" in h:
+                    col_idx["community_count"] = i
+
+            for row in ws.iter_rows(min_row=header_row_idx + 1, values_only=True):
+                district_val = str(row[col_idx.get("district", 0)] or "").strip() if col_idx.get("district") is not None and col_idx["district"] < len(row) else ""
+                if "横山" in district_val:
+                    if col_idx.get("work_order_count") is not None and col_idx["work_order_count"] < len(row):
+                        summary["work_order_count"] = str(row[col_idx["work_order_count"]] or "").strip()
+                    if col_idx.get("completed_count") is not None and col_idx["completed_count"] < len(row):
+                        summary["completed_count"] = str(row[col_idx["completed_count"]] or "").strip()
+                    if col_idx.get("completion_rate") is not None and col_idx["completion_rate"] < len(row):
+                        summary["completion_rate"] = str(row[col_idx["completion_rate"]] or "").strip()
+                    if col_idx.get("community_count") is not None and col_idx["community_count"] < len(row):
+                        summary["community_count"] = str(row[col_idx["community_count"]] or "").strip()
+                    break
+
+        # ── 2. 备选：从"小区维度" sheet 提取涉及小区数（仅当汇总表未提供时） ──
+        if not summary["community_count"]:
+            community_count = ""
+            for sname in wb.sheetnames:
+                if "小区维度" in sname:
+                    ws2 = wb[sname]
+                    # 计算数据行数 = 涉及小区数
+                    data_rows = 0
+                    for i, row in enumerate(ws2.iter_rows(values_only=True)):
+                        if i == 0:
+                            continue
+                        if any(c is not None and str(c).strip() for c in row):
+                            data_rows += 1
+                    community_count = str(data_rows)
+                    break
+            summary["community_count"] = community_count
+        result["summary"] = summary
+
+        # ── 3. 解析"当月工单清单" sheet，筛选横山 + 是否及时完工=否 ──
+        # 注意："未及时工单清单" 也包含 "工单清单"，必须先精确匹配 "当月工单清单"
+        detail_sheet = None
+        for sname in wb.sheetnames:
+            if "当月工单清单" in sname:
+                detail_sheet = sname
+                break
+        if not detail_sheet:
+            for sname in wb.sheetnames:
+                if "工单清单" in sname:
+                    detail_sheet = sname
+                    break
+
+        if detail_sheet and detail_sheet in wb.sheetnames:
+            ws3 = wb[detail_sheet]
+            header3 = [str(c.value or "").strip() for c in next(ws3.iter_rows(min_row=1, max_row=1))]
+
+            idx = {}
+            for i, h in enumerate(header3):
+                if h in POOR_QUALITY_WORK_ORDER_DETAIL_FIELDS:
+                    idx[h] = i
+                elif "区县" in h:
+                    idx["区县"] = i
+                elif "工单号" in h:
+                    idx["工单号"] = i
+                elif "派单时间" in h or "派单" in h:
+                    idx["派单时间"] = i
+                elif "限定完成" in h or "完成时间" in h:
+                    idx["限定完成时间"] = i
+                elif "维护人员" in h or "维护人" in h:
+                    idx["维护人员"] = i
+                elif "备注" in h:
+                    idx["备注"] = i
+                elif "OLT IP" in h or "OLT_IP" in h or "oltip" in h.lower():
+                    idx["OLT IP"] = i
+                elif "OLT接口" in h or "OLT端口" in h or "olt接口" in h:
+                    idx["OLT接口"] = i
+                elif "是否及时" in h or "及时完工" in h:
+                    idx["是否及时完工"] = i
+
+            for row in ws3.iter_rows(min_row=2, values_only=True):
+                # 筛选：区县包含"横山"
+                district_val = str(row[idx.get("区县", 0)] or "").strip() if idx.get("区县") is not None and idx["区县"] < len(row) else ""
+                if "横山" not in district_val:
+                    continue
+                # 筛选：是否及时完工 != "是"
+                timely = str(row[idx.get("是否及时完工", -1)] or "").strip() if idx.get("是否及时完工") is not None and idx["是否及时完工"] < len(row) else ""
+                if timely == "是":
+                    continue
+
+                rec = {}
+                for field in POOR_QUALITY_WORK_ORDER_DETAIL_FIELDS:
+                    col_i = idx.get(field)
+                    if col_i is not None and col_i < len(row):
+                        rec[field] = str(row[col_i] or "").strip()
+                    else:
+                        rec[field] = ""
+                result["records"].append(rec)
+
+            logger.info(f"质差小区弱光工单: {filename} -> 明细 {len(result['records'])} 条")
+
+        wb.close()
+
+    except Exception as e:
+        logger.error(f"解析质差小区弱光工单文件失败 {filename}: {e}", exc_info=True)
+        return {"summary": None, "records": [], "filename": filename, "report_date": None}
+
+    return result
+
+
+@record_notification("质差小区弱光工单处理完成率")
+async def reparse_poor_quality_work_order(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """
+    重新解析质差小区弱光工单处理完成率文件，
+    提取横山汇总指标和未完成工单明细，更新数据库。
+    """
+    if directory is None:
+        directory = settings.watch_dir
+
+    # 找到最新的匹配文件
+    matching: list[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("~$") or f.startswith("."):
+                continue
+            if "质差小区弱光工单处理完成率" in f and f.lower().endswith((".xlsx", ".xls")):
+                matching.append(os.path.join(root, f))
+
+    if not matching:
+        logger.warning("质差小区弱光工单: 未找到匹配文件")
+        return {"summary_parsed": 0, "record_count": 0, "filename": None}
+
+    matching.sort(key=os.path.getmtime)
+    filepath = matching[-1]
+    filename = os.path.basename(filepath)
+
+    # 在线程池中解析
+    result = await asyncio.to_thread(_parse_poor_quality_work_order_file, filepath)
+
+    # ── 写入汇总表 ──
+    from app.core.models import PoorQualityWorkOrderSummary, PoorQualityWorkOrderRecord
+    from sqlalchemy import delete as _delete
+
+    await db.execute(_delete(PoorQualityWorkOrderSummary))
+    await db.flush()
+
+    s = result.get("summary")
+    if s:
+        pwqs = PoorQualityWorkOrderSummary(
+            report_date=result.get("report_date") or "",
+            district="横山",
+            latest_filename=filename,
+            work_order_count=s.get("work_order_count", ""),
+            completed_count=s.get("completed_count", ""),
+            completion_rate=s.get("completion_rate", ""),
+            community_count=s.get("community_count", ""),
+        )
+        db.add(pwqs)
+        await db.flush()
+
+    # ── 写入明细表 ──
+    # 先获取或创建报表类型
+    stmt = select(ReportType).where(ReportType.name == "质差小区弱光工单处理完成率")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        report_type = ReportType(name="质差小区弱光工单处理完成率", category="质差整治")
+        db.add(report_type)
+        await db.flush()
+
+    # 删除旧的 report_files 和 records（注意外键顺序）
+    old_files_stmt = select(ReportFile.id).where(ReportFile.report_type_id == report_type.id)
+    r2 = await db.execute(old_files_stmt)
+    old_file_ids = [row[0] for row in r2.all()]
+    if old_file_ids:
+        # 先删除 PoorQualityWorkOrderRecord（引用 ReportFile 的子表）
+        await db.execute(_delete(PoorQualityWorkOrderRecord).where(
+            PoorQualityWorkOrderRecord.report_file_id.in_(old_file_ids)))
+        # 再删除通用的 ReportRecord
+        await db.execute(_delete(ReportRecord).where(ReportRecord.report_file_id.in_(old_file_ids)))
+        # 最后删除 ReportFile
+        await db.execute(_delete(ReportFile).where(ReportFile.id.in_(old_file_ids)))
+        await db.flush()
+
+    # 创建新的 ReportFile
+    report_file = ReportFile(
+        report_type_id=report_type.id,
+        filename=filename,
+        file_path=filepath,
+        parse_status="parsed",
+        record_count=len(result.get("records", [])),
+    )
+    db.add(report_file)
+    await db.flush()
+
+    # 写入明细记录
+    records = result.get("records", [])
+    for rec in records:
+        pwqr = PoorQualityWorkOrderRecord(
+            report_file_id=report_file.id,
+            district=rec.get("区县", ""),
+            work_order_no=rec.get("工单号", ""),
+            dispatch_time=rec.get("派单时间", ""),
+            deadline=rec.get("限定完成时间", ""),
+            maintenance_person=rec.get("维护人员", ""),
+            notes=rec.get("备注", ""),
+            olt_ip=rec.get("OLT IP", ""),
+            olt_port=rec.get("OLT接口", ""),
+        )
+        db.add(pwqr)
+
+    await db.commit()
+    logger.info(f"质差小区弱光工单: 已写入数据库 summary={'是' if s else '否'}, records={len(records)}, 文件={filename}")
+
+    return {
+        "summary_parsed": 1 if s else 0,
+        "record_count": len(records),
+        "filename": filename,
+        "report_date": result.get("report_date"),
+    }
+
+
+async def get_poor_quality_work_order_summary(db: AsyncSession) -> dict:
+    """获取质差小区弱光工单横山卡片指标"""
+    from app.core.models import PoorQualityWorkOrderSummary
+    stmt = select(PoorQualityWorkOrderSummary).order_by(PoorQualityWorkOrderSummary.id.desc()).limit(1)
+    r = await db.execute(stmt)
+    row = r.scalar_one_or_none()
+    if not row:
+        return {
+            "work_order_count": "",
+            "completed_count": "",
+            "completion_rate": "",
+            "community_count": "",
+            "report_date": None,
+            "latest_filename": None,
+        }
+    return {
+        "work_order_count": row.work_order_count,
+        "completed_count": row.completed_count,
+        "completion_rate": row.completion_rate,
+        "community_count": row.community_count,
+        "report_date": row.report_date,
+        "latest_filename": row.latest_filename,
+    }
+
+
+async def get_poor_quality_work_order_details(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
+    """分页获取质差小区弱光工单横山未完成明细"""
+    from app.core.models import PoorQualityWorkOrderRecord
+    from sqlalchemy import func
+
+    # 统计总数
+    count_stmt = select(func.count(PoorQualityWorkOrderRecord.id))
+    r = await db.execute(count_stmt)
+    total = r.scalar() or 0
+
+    # 分页查询
+    offset = (page - 1) * page_size
+    data_stmt = (
+        select(PoorQualityWorkOrderRecord)
+        .order_by(PoorQualityWorkOrderRecord.id.asc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    r2 = await db.execute(data_stmt)
+    rows = r2.scalars().all()
+
+    records = []
+    for row in rows:
+        records.append({
+            "id": row.id,
+            "district": row.district,
+            "work_order_no": row.work_order_no,
+            "dispatch_time": row.dispatch_time,
+            "deadline": row.deadline,
+            "maintenance_person": row.maintenance_person,
+            "notes": row.notes,
+            "olt_ip": row.olt_ip,
+            "olt_port": row.olt_port,
         })
 
     return {

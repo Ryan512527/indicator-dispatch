@@ -24,6 +24,7 @@ SPECIALIZED_REPORTS = [
     ("皮站故障",       "pisite-fault"),
     ("线下派单",       "offline-dispatch"),
     ("重投预警工单梳理", "retry-warning"),
+    ("质差小区弱光工单处理完成率", "poor-quality-work-order"),
     ("接入层",         "access-layer"),
     ("日报",           "daily-report"),
 ]

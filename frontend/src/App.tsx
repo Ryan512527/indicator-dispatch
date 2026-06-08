@@ -14,6 +14,7 @@ import { FiveCategoryWithdrawalDetail } from './pages/FiveCategoryWithdrawalDeta
 import { OfflineDispatchDetail } from './pages/OfflineDispatchDetail'
 import { RetryWarningDetailPage } from './pages/RetryWarningDetail'
 import { EnterpriseBroadbandFaultDetail } from './pages/EnterpriseBroadbandFaultDetail'
+import { PoorQualityWorkOrderDetail } from './pages/PoorQualityWorkOrderDetail'
 import type { Page } from './types'
 
 
@@ -38,6 +39,7 @@ export default function App() {
         page.name === 'complaint-2200000-detail' ? '/complaint-2200000' :
         page.name === 'retry-warning-detail' ? '/retry-warning' :
         page.name === 'enterprise-broadband-fault-detail' ? '/enterprise-broadband-fault' :
+        page.name === 'poor-quality-work-order-detail' ? '/poor-quality-work-order' :
         ''
       }
       onNavigate={(p: string | Page) => {
@@ -65,6 +67,7 @@ export default function App() {
       {page.name === 'complaint-2200000-detail' && <Dashboard onNavigate={p => setPage(p)} initialPage="complaint-2200000-detail" />}
       {page.name === 'retry-warning-detail' && <RetryWarningDetailPage onNavigate={p => setPage(p)} />}
       {page.name === 'enterprise-broadband-fault-detail' && <EnterpriseBroadbandFaultDetail onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'poor-quality-work-order-detail' && <PoorQualityWorkOrderDetail onBack={() => setPage({ name: 'dashboard' })} />}
     </Layout>
   )
 }

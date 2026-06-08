@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailResponse, RetryWarningSummary, RetryWarningDetailResponse, CustomerRepairDetailResponse, EnterpriseBroadbandFaultSummary, EnterpriseBroadbandFaultRecord, EnterpriseBroadbandFaultResponse } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailResponse, RetryWarningSummary, RetryWarningDetailResponse, CustomerRepairDetailResponse, EnterpriseBroadbandFaultSummary, EnterpriseBroadbandFaultRecord, EnterpriseBroadbandFaultResponse, PoorQualityWorkOrderSummary, PoorQualityWorkOrderResponse } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -337,7 +337,29 @@ export const api = {
     return res.json();
   },
 
-  // ── Notification APIs ──
+  // ── 质差小区弱光工单 API ──
+
+  getPoorQualityWorkOrderSummary: async () => {
+    return fetchJson<PoorQualityWorkOrderSummary>('/reports/poor-quality-work-order/summary');
+  },
+
+  getPoorQualityWorkOrderDetails: async (params?: {
+    page?: number;
+    page_size?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.page_size) qs.set('page_size', String(params.page_size));
+    return fetchJson<PoorQualityWorkOrderResponse>(`/reports/poor-quality-work-order/details?${qs.toString()}`);
+  },
+
+  reparsePoorQualityWorkOrder: async () => {
+    const res = await fetch(`${BASE}/reports/poor-quality-work-order/reparse`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
+    return res.json();
+  },
+
+// ── Notification APIs ──
   getNotifications: (limit = 10) =>
     fetchJson<import('../types').Notification[]>(`/notifications`, { limit: String(limit) }),
 

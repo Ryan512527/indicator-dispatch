@@ -801,6 +801,39 @@ async def enterprise_broadband_fault_reparse(
     return {"report_type": "企宽故障率", **result}
 
 
+# ── 质差小区弱光工单 API ──
+
+@router.get("/reports/poor-quality-work-order/summary")
+async def poor_quality_work_order_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取质差小区弱光工单横山卡片指标"""
+    from app.services.report_scanner import get_poor_quality_work_order_summary
+    return await get_poor_quality_work_order_summary(db)
+
+
+@router.get("/reports/poor-quality-work-order/details")
+async def poor_quality_work_order_details(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """分页获取质差小区弱光工单横山未完成明细"""
+    from app.services.report_scanner import get_poor_quality_work_order_details
+    return await get_poor_quality_work_order_details(db, page, page_size)
+
+
+@router.post("/reports/poor-quality-work-order/reparse")
+async def poor_quality_work_order_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析质差小区弱光工单文件，提取横山汇总指标和未完成工单明细"""
+    from app.services.report_scanner import reparse_poor_quality_work_order
+    result = await reparse_poor_quality_work_order(db, directory)
+    return {"report_type": "质差小区弱光工单处理完成率", **result}
+
+
 # ── 通知 API ──
 
 @router.get("/notifications")

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailRecord, RetryWarningSummary, EnterpriseBroadbandFaultSummary } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailRecord, RetryWarningSummary, EnterpriseBroadbandFaultSummary, PoorQualityWorkOrderSummary } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -1518,6 +1518,130 @@ function EnterpriseBroadbandFaultCard({ color, onNavigate }: { color: string; on
   )
 }
 
+
+// ── 质差小区弱光工单专用卡片 ──
+function PoorQualityWorkOrderCard({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
+  const [summary, setSummary] = useState<PoorQualityWorkOrderSummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getPoorQualityWorkOrderSummary()
+      .then(data => setSummary(data as PoorQualityWorkOrderSummary))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '16px 20px',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        display: 'flex', flexDirection: 'column',
+        minHeight: 200,
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>质差小区弱光工单</div>
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bbb', fontSize: 12 }}>
+          加载中...
+        </div>
+      </div>
+    )
+  }
+
+  const workOrderCount = summary?.work_order_count || '—'
+  const completedCount = summary?.completed_count || '—'
+  const completionRate = (() => {
+    const raw = summary?.completion_rate
+    if (!raw) return '—'
+    const n = parseFloat(raw)
+    if (isNaN(n)) return raw
+    return (n * 100).toFixed(2) + '%'
+  })()
+  const communityCount = summary?.community_count || '—'
+  const reportDate = summary?.report_date || ''
+  const latestFilename = (summary as any)?.latest_filename || ''
+
+  return (
+    <div
+      onClick={() => onNavigate({ name: 'poor-quality-work-order-detail' })}
+      style={{
+        background: '#fff',
+        borderRadius: 12,
+        padding: '16px 20px',
+        cursor: 'pointer',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+        borderLeft: `4px solid ${color}`,
+        transition: 'transform 0.15s, box-shadow 0.15s',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+      onMouseEnter={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'
+        e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.1)'
+      }}
+      onMouseLeave={e => {
+        (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.06)'
+      }}
+    >
+      {/* 标题栏 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e' }}>质差小区弱光工单</div>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 8px',
+            borderRadius: 10,
+            background: '#ecfdf5',
+            color: '#10b981',
+            fontSize: 11,
+            fontWeight: 600,
+          }}>
+            横山
+          </span>
+        </div>
+        <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
+          {reportDate || '—'}
+        </span>
+      </div>
+
+      {/* 核心指标 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 10 }}>
+        {[
+          { label: '工单数', value: workOrderCount, key: 'work_order_count' },
+          { label: '累计回单数', value: completedCount, key: 'completed_count' },
+          { label: '完成率', value: completionRate, key: 'completion_rate' },
+          { label: '涉及小区数', value: communityCount, key: 'community_count' },
+        ].map(item => (
+          <div key={item.key} style={{
+            textAlign: 'center',
+            background: '#f0fdf4',
+            borderRadius: 8,
+            padding: '8px 4px',
+          }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#16a34a', lineHeight: 1.2 }}>
+              {item.value}
+            </div>
+            <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+              {item.label}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* 底部 */}
+      <div style={{ fontSize: 11, color: '#aaa', borderTop: '1px solid #f5f5f5', paddingTop: 8, marginTop: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }} title={latestFilename}>
+            📄 {latestFilename || (reportDate ? `通报 ${reportDate}` : '—')}
+          </span>
+          <span style={{ color: '#10b981' }}>点击查看未完成明细 →</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 10086投诉积压(督办)专用卡片 ──
 function Complaint10086Card({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
   const [summary, setSummary] = useState<Complaint10086Summary | null>(null)
@@ -1953,6 +2077,10 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
                 // 企宽故障率用专用卡片
                 if (rt.name === '企宽故障率') {
                   return <EnterpriseBroadbandFaultCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
+                }
+                // 质差小区弱光工单处理完成率用专用卡片
+                if (rt.name === '质差小区弱光工单处理完成率') {
+                  return <PoorQualityWorkOrderCard key={rt.id} color={cat.color} onNavigate={onNavigate} />
                 }
                 // 10086投诉积压(督办)用专用卡片
                 if (rt.name === '10086投诉积压(督办)') {

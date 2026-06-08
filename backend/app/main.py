@@ -3,7 +3,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from starlette.middleware.gzip import GZipMiddleware
 from app.core.database import init_db, engine
 from app.api.routes import router as api_router
 import asyncio
@@ -42,8 +41,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    # GZip 压缩：超过 500 字节的响应自动压缩，JS/CSS 可压缩 70%+
-    app.add_middleware(GZipMiddleware, minimum_size=500)
     app.include_router(api_router, prefix="/api/v1")
 
     # ── 生产模式：提供前端静态文件 ──
@@ -51,34 +48,18 @@ def create_app() -> FastAPI:
     if os.path.isdir(frontend_dist):
         app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="static-assets")
 
-        # index.html 不缓存，确保每次拿到最新版本
         @app.get("/")
         async def serve_index():
-            return FileResponse(
-                os.path.join(frontend_dist, "index.html"),
-                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
-            )
+            return FileResponse(os.path.join(frontend_dist, "index.html"))
 
         @app.get("/{full_path:path}")
         async def serve_spa(request: Request, full_path: str):
+            # 如果请求的文件存在于 dist 中，直接返回
             file_path = os.path.join(frontend_dist, full_path)
             if full_path and os.path.isfile(file_path):
                 return FileResponse(file_path)
-            # SPA 路由兜底：返回 index.html（不缓存）
-            return FileResponse(
-                os.path.join(frontend_dist, "index.html"),
-                headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
-            )
-
-        # 为带 hash 的静态资源添加长期缓存头
-        @app.middleware("http")
-        async def add_asset_cache_headers(request: Request, call_next):
-            response = await call_next(request)
-            path = request.url.path
-            # /assets/ 下的文件含内容 hash，可以永久缓存
-            if path.startswith("/assets/"):
-                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-            return response
+            # 其他路径返回 index.html（SPA 路由）
+            return FileResponse(os.path.join(frontend_dist, "index.html"))
 
         logger.info(f"前端静态文件已挂载: {frontend_dist}")
 

@@ -425,11 +425,11 @@ class RetryWarningDetail(Base):
 
     id = Column(BigInteger, primary_key=True)
     district = Column(String(50), comment="所属区县")
-    retry_count = Column(String(50), comment="重投")
+    retry_count = Column(String(50), comment="重投次数")
     broadband_account = Column(String(100), comment="宽带帐号")
     is_global_user = Column(String(50), comment="是否全球通用户")
     customer_contact = Column(String(100), comment="客户联系方式")
-    construction_address = Column(Text, comment="施工地址")
+    construction_address = Column(Text, comment="小区名称")
     days_elapsed = Column(String(50), comment="历时天数")
     handler_name = Column(String(50), comment="处理人姓名")
     complaint_content = Column(Text, comment="投诉内容")
@@ -482,6 +482,42 @@ class EnterpriseBroadbandFaultRecord(Base):
     alarm_weighted_duration = Column(String(50), comment="告警加权时长")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+
+class PoorQualityWorkOrderSummary(Base):
+    """质差小区弱光工单 - 汇总指标（来自"区县弱光工单处理完成率"sheet + "小区维度"sheet）"""
+    __tablename__ = "poor_quality_work_order_summary"
+
+    id = Column(BigInteger, primary_key=True)
+    report_date = Column(String(50), comment="通报日期，如 2026-06-04")
+    district = Column(String(50), default="横山", comment="区县")
+    latest_filename = Column(String(255), comment="报表文件名")
+    work_order_count = Column(String(50), comment="工单数")
+    completed_count = Column(String(50), comment="累计回单数")
+    completion_rate = Column(String(50), comment="完成率%")
+    community_count = Column(String(50), comment="涉及小区数（来自小区维度sheet）")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class PoorQualityWorkOrderRecord(Base):
+    """质差小区弱光工单 - 横山未完成明细（来自"当月工单清单"sheet）
+    筛选条件：区县=横山，是否及时完工=否
+    """
+    __tablename__ = "poor_quality_work_order_record"
+
+    id = Column(BigInteger, primary_key=True)
+    report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=False, index=True)
+    district = Column(String(50), comment="区县")
+    work_order_no = Column(String(100), comment="工单号")
+    dispatch_time = Column(String(50), comment="派单时间")
+    deadline = Column(String(50), comment="限定完成时间")
+    maintenance_person = Column(String(50), comment="维护人员")
+    notes = Column(Text, comment="备注")
+    olt_ip = Column(String(100), comment="OLT IP")
+    olt_port = Column(String(100), comment="OLT接口")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+# ── Notification ──
 
 class Notification(Base):
     """指标更新通知记录——watcher监听到的报表更新事件"""
