@@ -6024,7 +6024,7 @@ def _parse_enterprise_broadband_low_light_files(directory: str) -> dict:
                         if cell is None:
                             continue
                         cs = str(cell).strip()
-                        if "区县" in cs and dist_idx is None:
+                        if ("区县" in cs or "县区" in cs) and dist_idx is None:
                             dist_idx = ci
                         elif "企宽总量" in cs and total_idx is None:
                             total_idx = ci
@@ -6065,6 +6065,9 @@ def _parse_enterprise_broadband_low_light_files(directory: str) -> dict:
 
                         # 跳过标题行
                         if "弱光通报" in name_val:
+                            continue
+                        # 跳过表头行（含"区县"/"县区"等列名）
+                        if "区县" in name_val or "县区" in name_val or "企宽总量" in name_val or "月完成" in name_val:
                             continue
 
                         total_val = row[total_idx] if total_idx < len(row) else None

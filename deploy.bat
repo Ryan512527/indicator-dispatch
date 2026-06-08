@@ -1,85 +1,66 @@
 @echo off
 REM ============================================
-REM 部署脚本 — 将已验证的代码更新到生产环境
-REM 流程: 构建前端 → 停止生产 → 启动生产
-REM 中断时间 < 5 秒
+REM Deploy: build frontend + restart production
 REM ============================================
 
 cd /d "%~dp0"
 
 echo.
 echo ========================================
-echo   部署到生产环境
+echo   Deploy to Production
 echo ========================================
 echo.
 
-REM 1. 构建前端
-echo [1/3] 构建前端...
+REM 1. Build frontend
+echo [1/3] Building frontend...
 cd /d "%~dp0frontend"
 call npm run build
 if %errorlevel% neq 0 (
-    echo [错误] 前端构建失败！
+    echo [ERROR] Frontend build failed!
     pause
     exit /b 1
 )
-echo       前端构建完成
+echo       Done
 cd /d "%~dp0"
 
-REM 2. 停止生产进程
+REM 2. Stop production on port 8000
 echo.
-echo [2/3] 停止生产进程 (8000端口)...
-
-REM 找到端口 8000 的进程
+echo [2/3] Stopping production (port 8000)...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000.*LISTENING"') do (
     set PID=%%a
     goto :found
 )
-echo       [跳过] 端口 8000 未被占用
+echo       Nothing on port 8000
 goto :start_prod
 
 :found
-echo       进程 PID: %PID%
+echo       PID: %PID%
 taskkill /F /PID %PID% >nul 2>&1
 if %errorlevel% equ 0 (
-    echo       已停止
+    echo       Stopped
 ) else (
-    echo       [警告] 无法停止进程，请手动处理
-    pause
-    exit /b 1
+    echo       [WARN] Cannot stop PID %PID%
 )
-
-REM 等一秒确保端口释放
 timeout /t 1 /nobreak >nul
 
 :start_prod
-REM 3. 启动生产
+REM 3. Start production
 echo.
-echo [3/3] 启动生产环境...
+echo [3/3] Starting production on port 8000...
 cd /d "%~dp0backend"
 
-REM 激活 venv (如果有)
 if exist ".venv\Scripts\activate.bat" (
     call .venv\Scripts\activate.bat
 )
 
-start "指标调度系统-生产" /B uvicorn app.main:app --host 0.0.0.0 --port 8000
+start "indicator-dispatch-prod" /B uvicorn app.main:app --host 0.0.0.0 --port 8000
 
-REM 等待启动
-timeout /t 2 /nobreak >nul
+timeout /t 3 /nobreak >nul
 
-REM 验证
-curl -s -o nul -w "%%{http_code}" http://localhost:8000/api/v1/health >nul 2>&1
-if %errorlevel% equ 0 (
-    echo.
-    echo ========================================
-    echo   部署成功！
-    echo   后端: http://localhost:8000
-    echo   API:  http://localhost:8000/api/v1/health
-    echo ========================================
-) else (
-    echo.
-    echo [警告] 服务可能未正常启动，请手动检查
-)
-
+echo.
+echo ========================================
+echo   Deploy complete!
+echo   http://localhost:8000
+echo ========================================
 echo.
 pause
