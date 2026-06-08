@@ -25,6 +25,9 @@ async def lifespan(app: FastAPI):
     logger.info("后台服务启动任务已创建")
     yield
     task.cancel()
+    # Close LLM httpx client
+    from app.ai.llm import close_client
+    await close_client()
     await engine.dispose()
 
 

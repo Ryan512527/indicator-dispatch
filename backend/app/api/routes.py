@@ -153,13 +153,22 @@ async def aggregate_events(
 
 # ── AI Chat ──
 
+from pydantic import BaseModel as _BaseModel
+from typing import Optional as _Optional, List as _List
+
+
+class AiChatRequest(_BaseModel):
+    message: str
+    history: _Optional[_List[dict]] = None
+
+
 @router.post("/ai/chat")
 async def ai_chat(
-    message: str,
+    req: AiChatRequest,
     db: AsyncSession = Depends(get_db),
 ):
     from app.ai.service import ai_chat_handler
-    return await ai_chat_handler(message, db)
+    return await ai_chat_handler(req.message, db, req.history)
 
 
 # ── File sources (for latest file detection) ──

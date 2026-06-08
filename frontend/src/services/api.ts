@@ -37,8 +37,12 @@ export const api = {
     end?: string;
   }) => fetchJson<import('../types').AggregateResult[]>('/events/aggregate', params as Record<string, string>),
 
-  aiChat: async (message: string) => {
-    const res = await fetch(`${BASE}/ai/chat?message=${encodeURIComponent(message)}`, { method: 'POST' });
+  aiChat: async (message: string, history?: Array<{role: string; content: string}>) => {
+    const res = await fetch(`${BASE}/ai/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history }),
+    });
     if (!res.ok) throw new Error(`AI chat error: ${res.status}`);
     return res.json() as Promise<import('../types').ChatResponse>;
   },

@@ -32,7 +32,9 @@ export interface ChatResponse {
     rows?: Record<string, string>[];
     categories?: string[];
     values?: number[];
+    title?: string;
   };
+  answer?: string;
 }
 
 export interface ReportType {
