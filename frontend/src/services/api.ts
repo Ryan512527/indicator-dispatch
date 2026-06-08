@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailResponse, RetryWarningSummary, RetryWarningDetailResponse, CustomerRepairDetailResponse, EnterpriseBroadbandFaultSummary, EnterpriseBroadbandFaultRecord, EnterpriseBroadbandFaultResponse, PoorQualityWorkOrderSummary, PoorQualityWorkOrderResponse } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailResponse, RetryWarningSummary, RetryWarningDetailResponse, CustomerRepairDetailResponse, EnterpriseBroadbandFaultSummary, EnterpriseBroadbandFaultRecord, EnterpriseBroadbandFaultResponse, PoorQualityWorkOrderSummary, PoorQualityWorkOrderResponse, EnterpriseBroadbandLowLightSummary, EnterpriseBroadbandLowLightResponse } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -355,6 +355,28 @@ export const api = {
 
   reparsePoorQualityWorkOrder: async () => {
     const res = await fetch(`${BASE}/reports/poor-quality-work-order/reparse`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
+    return res.json();
+  },
+
+  // ── 企宽弱光通报 API ──
+
+  getEnterpriseBroadbandLowLightSummary: async () => {
+    return fetchJson<EnterpriseBroadbandLowLightSummary>('/reports/enterprise-broadband-low-light/summary');
+  },
+
+  getEnterpriseBroadbandLowLightDetails: async (params?: {
+    page?: number;
+    page_size?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.page_size) qs.set('page_size', String(params.page_size));
+    return fetchJson<EnterpriseBroadbandLowLightResponse>(`/reports/enterprise-broadband-low-light/details?${qs.toString()}`);
+  },
+
+  reparseEnterpriseBroadbandLowLight: async () => {
+    const res = await fetch(`${BASE}/reports/enterprise-broadband-low-light/reparse`, { method: 'POST' });
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
     return res.json();
   },

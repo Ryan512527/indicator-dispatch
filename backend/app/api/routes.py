@@ -834,6 +834,39 @@ async def poor_quality_work_order_reparse(
     return {"report_type": "质差小区弱光工单处理完成率", **result}
 
 
+# ── 企宽弱光通报横山专用 API ──
+
+@router.get("/reports/enterprise-broadband-low-light/summary")
+async def enterprise_broadband_low_light_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """获取企宽弱光通报横山卡片指标（企宽总量、月完成量、月完成率、县区排名）"""
+    from app.services.report_scanner import get_enterprise_broadband_low_light_summary
+    return await get_enterprise_broadband_low_light_summary(db)
+
+
+@router.get("/reports/enterprise-broadband-low-light/details")
+async def enterprise_broadband_low_light_details(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """分页获取企宽弱光通报横山未恢复明细"""
+    from app.services.report_scanner import get_enterprise_broadband_low_light_details
+    return await get_enterprise_broadband_low_light_details(db, page, page_size)
+
+
+@router.post("/reports/enterprise-broadband-low-light/reparse")
+async def enterprise_broadband_low_light_reparse(
+    directory: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """重新解析企宽弱光通报文件，提取横山汇总指标和未恢复明细"""
+    from app.services.report_scanner import reparse_enterprise_broadband_low_light
+    result = await reparse_enterprise_broadband_low_light(db, directory)
+    return {"report_type": "企宽弱光通报", **result}
+
+
 # ── 通知 API ──
 
 @router.get("/notifications")

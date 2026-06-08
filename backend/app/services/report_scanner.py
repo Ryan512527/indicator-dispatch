@@ -5937,3 +5937,425 @@ async def get_poor_quality_work_order_details(
         "page": page,
         "page_size": page_size,
     }
+
+
+# ── 企宽弱光通报横山数据专用处理 ──
+# 企宽清单保留字段
+ENTERPRISE_BROADBAND_LOW_LIGHT_FIELDS = [
+    "区县",
+    "日期",
+    "OLT名称",
+    "OLT-IP",
+    "PON口",
+    "ONU-ID",
+    "收光dbm",
+    "小区",
+    "账号-带宽",
+]
+
+
+def _parse_enterprise_broadband_low_light_files(directory: str) -> dict:
+    """
+    解析最新"企宽弱光通报"文件：
+    1. 从"企宽通报"sheet 提取横山汇总指标 + 全部县区数据（用于排名）
+    2. 从"企宽清单"sheet 提取横山未恢复明细
+    返回 {"summary": dict, "records": [dict], "filename": str, "report_date": str}
+    """
+    from datetime import datetime as _dt
+
+    # 找到最新的企宽弱光通报文件
+    matching: list[str] = []
+    for root, _dirs, files in os.walk(directory):
+        for f in files:
+            if f.startswith("~$") or f.startswith("."):
+                continue
+            if "企宽弱光通报" in f and f.lower().endswith((".xlsx", ".xls")):
+                matching.append(os.path.join(root, f))
+
+    if not matching:
+        return {"summary": None, "records": [], "filename": None, "report_date": None}
+
+    # 按修改时间排序，取最新
+    matching.sort(key=lambda f: os.path.getmtime(f), reverse=True)
+    latest_file = matching[0]
+    filename = os.path.basename(latest_file)
+
+    # 尝试从文件名提取日期
+    report_date = None
+    date_match = re.search(r'(\d{4})[-年](\d{1,2})[-月](\d{1,2})', filename)
+    if date_match:
+        report_date = f"{date_match.group(1)}-{date_match.group(2).zfill(2)}-{date_match.group(3).zfill(2)}"
+    else:
+        report_date = _dt.now().strftime("%Y-%m-%d")
+
+    try:
+        wb = openpyxl.load_workbook(latest_file, read_only=True, data_only=True)
+
+        summary = None
+        records: list[dict] = []
+
+        # ── 1. 解析"企宽通报"sheet ──
+        if "企宽通报" in wb.sheetnames:
+            ws = wb["企宽通报"]
+            rows_data = list(ws.iter_rows(values_only=True))
+
+            logger.info(f"企宽弱光: 企宽通报sheet共有 {len(rows_data)} 行, 文件: {filename}")
+
+            if len(rows_data) >= 3:
+                # 扫描前10行，找到表头行（含"企宽总量"关键字）
+                header_row = None
+                header_scan_limit = min(10, len(rows_data))
+                for idx in range(header_scan_limit):
+                    row = rows_data[idx]
+                    if not row:
+                        continue
+                    row_text = " ".join(str(c) for c in row if c)
+                    if "企宽总量" in row_text:
+                        header_row = row
+                        break
+
+                if header_row:
+                    # 建立列索引：区县, 企宽总量, 月完成量, 月完成率
+                    dist_idx = None
+                    total_idx = None
+                    completed_idx = None
+                    rate_idx = None
+                    for ci, cell in enumerate(header_row):
+                        if cell is None:
+                            continue
+                        cs = str(cell).strip()
+                        if "区县" in cs and dist_idx is None:
+                            dist_idx = ci
+                        elif "企宽总量" in cs and total_idx is None:
+                            total_idx = ci
+                        elif "月完成量" in cs and completed_idx is None:
+                            completed_idx = ci
+                        elif "月完成率" in cs and rate_idx is None:
+                            rate_idx = ci
+
+                    logger.info(
+                        f"企宽弱光: col_indexes -> dist={dist_idx}, total={total_idx}, "
+                        f"completed={completed_idx}, rate={rate_idx}"
+                    )
+
+                    # 如果没找到明确的列，用默认位置
+                    if dist_idx is None:
+                        dist_idx = 0
+                    if total_idx is None:
+                        total_idx = 1
+                    if completed_idx is None:
+                        completed_idx = 2
+                    if rate_idx is None:
+                        rate_idx = 3
+
+                    # 收集所有县区数据用于排名
+                    county_data: list[dict] = []
+                    hengshan_summary = None
+
+                    for row in rows_data[1:]:
+                        if not row:
+                            continue
+                        max_idx = max(dist_idx, total_idx, completed_idx, rate_idx)
+                        if len(row) <= max_idx:
+                            continue
+
+                        name_val = str(row[dist_idx]).strip() if dist_idx < len(row) and row[dist_idx] else ""
+                        if not name_val or name_val == "None":
+                            continue
+
+                        # 跳过标题行
+                        if "弱光通报" in name_val:
+                            continue
+
+                        total_val = row[total_idx] if total_idx < len(row) else None
+                        completed_val = row[completed_idx] if completed_idx < len(row) else None
+                        rate_val = row[rate_idx] if rate_idx < len(row) else None
+
+                        if total_val is None and rate_val is None:
+                            continue
+
+                        county_entry = {
+                            "name": name_val,
+                            "total_count": str(total_val).strip() if total_val is not None else "",
+                            "monthly_completed": str(completed_val).strip() if completed_val is not None else "",
+                            "monthly_completion_rate": str(rate_val).strip() if rate_val is not None else "",
+                        }
+                        county_data.append(county_entry)
+
+                        if "横山" in name_val:
+                            hengshan_summary = county_entry
+
+                    # 计算县区排名（剔除"全市"，按完成率降序排列）
+                    rankable = [c for c in county_data if "全市" not in c["name"]]
+                    try:
+                        rankable.sort(key=lambda x: float(x["monthly_completion_rate"]) if x["monthly_completion_rate"] else 0, reverse=True)
+                    except Exception:
+                        pass
+
+                    hengshan_rank = None
+                    total_rankable = len(rankable)
+                    for ri, c in enumerate(rankable):
+                        if "横山" in c["name"]:
+                            hengshan_rank = ri + 1
+                            break
+
+                    if hengshan_summary:
+                        summary = {
+                            "district": "横山",
+                            "total_count": hengshan_summary["total_count"],
+                            "monthly_completed": hengshan_summary["monthly_completed"],
+                            "monthly_completion_rate": hengshan_summary["monthly_completion_rate"],
+                            "county_rank": f"第{hengshan_rank}名/{total_rankable}" if hengshan_rank else "",
+                        }
+                    else:
+                        logger.warning(f"企宽弱光: 未找到横山行, 文件: {filename}")
+
+                    logger.info(f"企宽弱光: 县区数={len(county_data)}, 可排名={total_rankable}, 横山排名={hengshan_rank}")
+                else:
+                    logger.warning(f"企宽弱光: 未找到含'企宽总量'的表头行, 文件: {filename}")
+            else:
+                logger.warning(f"企宽弱光: 企宽通报sheet行数不足({len(rows_data)}行), 文件: {filename}")
+
+            logger.info(f"企宽弱光通报sheet最终结果: {filename} -> summary={summary}")
+
+        # ── 2. 解析"企宽清单"sheet ──
+        if "企宽清单" in wb.sheetnames:
+            ws = wb["企宽清单"]
+            row_iter = ws.iter_rows(values_only=True)
+
+            # 读取表头行
+            try:
+                header_row = next(row_iter)
+            except StopIteration:
+                header_row = ()
+
+            if header_row:
+                # 建立列名 -> 列索引映射
+                col_map: dict[str, int] = {}
+                target_fields = ENTERPRISE_BROADBAND_LOW_LIGHT_FIELDS + ["是否恢复"]
+                for idx, cell in enumerate(header_row):
+                    if cell is None:
+                        continue
+                    cell_str = str(cell).strip()
+                    for field in target_fields:
+                        if field in cell_str:
+                            col_map[field] = idx
+                            break
+
+                # 检查必要字段
+                required = ["区县", "日期", "OLT名称", "OLT-IP", "ONU-ID"]
+                missing_fields = [f for f in required if f not in col_map]
+                if not missing_fields:
+                    max_col_idx = max(col_map.values())
+                    for row in row_iter:
+                        if not row or len(row) <= max_col_idx:
+                            continue
+                        # 筛选区县=横山
+                        district_val = str(row[col_map["区县"]]).strip() if "区县" in col_map and row[col_map["区县"]] is not None else ""
+                        if district_val != "横山":
+                            continue
+                        # 剔除是否恢复=是
+                        is_recovered = ""
+                        if "是否恢复" in col_map and col_map["是否恢复"] < len(row) and row[col_map["是否恢复"]] is not None:
+                            is_recovered = str(row[col_map["是否恢复"]]).strip()
+                        if is_recovered == "是":
+                            continue
+
+                        def _get_val(field: str) -> str:
+                            idx = col_map.get(field)
+                            if idx is not None and idx < len(row) and row[idx] is not None:
+                                return str(row[idx]).strip()
+                            return ""
+
+                        record = {
+                            "区县": district_val,
+                            "日期": _get_val("日期"),
+                            "OLT名称": _get_val("OLT名称"),
+                            "OLT-IP": _get_val("OLT-IP"),
+                            "PON口": _get_val("PON口"),
+                            "ONU-ID": _get_val("ONU-ID"),
+                            "收光dbm": _get_val("收光dbm"),
+                            "小区": _get_val("小区"),
+                            "账号-带宽": _get_val("账号-带宽"),
+                        }
+                        records.append(record)
+
+                    logger.info(f"企宽弱光清单: {filename} -> {len(records)} 条横山未恢复记录")
+                else:
+                    logger.warning(f"企宽弱光清单缺少字段: {missing_fields}")
+        else:
+            logger.warning(f"企宽弱光文件 {filename} 缺少'企宽清单'sheet")
+
+        wb.close()
+        return {
+            "summary": summary,
+            "records": records,
+            "filename": filename,
+            "report_date": report_date,
+        }
+
+    except Exception as e:
+        logger.error(f"解析企宽弱光通报文件失败 {filename}: {e}", exc_info=True)
+        return {"summary": None, "records": [], "filename": filename, "report_date": report_date}
+
+
+@record_notification("企宽弱光通报")
+async def reparse_enterprise_broadband_low_light(db: AsyncSession, directory: Optional[str] = None) -> dict:
+    """
+    重新解析企宽弱光通报文件，提取横山汇总指标和未恢复明细，更新数据库。
+    删除旧数据并写入新数据。
+    """
+    if directory is None:
+        directory = settings.watch_dir
+
+    # 在线程池中解析
+    result = await asyncio.to_thread(_parse_enterprise_broadband_low_light_files, directory)
+
+    # ── 写入汇总表 ──
+    from app.core.models import EnterpriseBroadbandLowLightSummary, EnterpriseBroadbandLowLightRecord
+    from sqlalchemy import delete as _delete
+
+    await db.execute(_delete(EnterpriseBroadbandLowLightSummary))
+    await db.execute(_delete(EnterpriseBroadbandLowLightRecord))
+
+    summary_count = 0
+    if result["summary"]:
+        s = result["summary"]
+        eblls = EnterpriseBroadbandLowLightSummary(
+            report_date=result["report_date"] or "",
+            district="横山",
+            latest_filename=result.get("filename") or "",
+            total_count=s.get("total_count", ""),
+            monthly_completed=s.get("monthly_completed", ""),
+            monthly_completion_rate=s.get("monthly_completion_rate", ""),
+            county_rank=s.get("county_rank", ""),
+        )
+        db.add(eblls)
+        summary_count = 1
+
+    # ── 写入明细表 ──
+    # 先获取或创建"企宽弱光通报"报表类型用于关联 ReportFile
+    stmt = select(ReportType).where(ReportType.name == "企宽弱光通报")
+    r = await db.execute(stmt)
+    report_type = r.scalar_one_or_none()
+    if not report_type:
+        report_type = ReportType(name="企宽弱光通报", category="质差整治")
+        db.add(report_type)
+        await db.flush()
+
+    # 删除旧的 report_files/report_records
+    old_files_stmt = select(ReportFile.id).where(ReportFile.report_type_id == report_type.id)
+    r2 = await db.execute(old_files_stmt)
+    old_file_ids = [row[0] for row in r2.all()]
+    if old_file_ids:
+        await db.execute(_delete(ReportRecord).where(ReportRecord.report_file_id.in_(old_file_ids)))
+        await db.execute(_delete(ReportFile).where(ReportFile.id.in_(old_file_ids)))
+
+    # 创建 ReportFile
+    if result["filename"]:
+        report_file = ReportFile(
+            report_type_id=report_type.id,
+            filename=result["filename"],
+            file_path=os.path.join(directory, result["filename"]),
+            parse_status="parsed",
+            record_count=len(result["records"]),
+        )
+        db.add(report_file)
+        await db.flush()
+
+        for rec in result["records"]:
+            ebllr = EnterpriseBroadbandLowLightRecord(
+                report_file_id=report_file.id,
+                district=rec["区县"],
+                date=rec.get("日期", ""),
+                olt_name=rec.get("OLT名称", ""),
+                olt_ip=rec.get("OLT-IP", ""),
+                pon_port=rec.get("PON口", ""),
+                onu_id=rec.get("ONU-ID", ""),
+                rx_power_dbm=rec.get("收光dbm", ""),
+                community=rec.get("小区", ""),
+                account_bandwidth=rec.get("账号-带宽", ""),
+            )
+            db.add(ebllr)
+
+    await db.commit()
+
+    return {
+        "summary_parsed": summary_count,
+        "detail_count": len(result["records"]),
+        "filename": result["filename"],
+        "report_date": result["report_date"],
+    }
+
+
+async def get_enterprise_broadband_low_light_summary(db: AsyncSession) -> dict:
+    """获取企宽弱光通报横山卡片指标"""
+    from app.core.models import EnterpriseBroadbandLowLightSummary
+    stmt = select(EnterpriseBroadbandLowLightSummary).order_by(EnterpriseBroadbandLowLightSummary.id.desc()).limit(1)
+    r = await db.execute(stmt)
+    row = r.scalar_one_or_none()
+    if not row:
+        return {
+            "district": "横山",
+            "total_count": "",
+            "monthly_completed": "",
+            "monthly_completion_rate": "",
+            "county_rank": "",
+            "report_date": "",
+            "latest_filename": "",
+        }
+    return {
+        "district": row.district,
+        "total_count": row.total_count,
+        "monthly_completed": row.monthly_completed,
+        "monthly_completion_rate": row.monthly_completion_rate,
+        "county_rank": row.county_rank,
+        "report_date": row.report_date,
+        "latest_filename": getattr(row, "latest_filename", "") or "",
+    }
+
+
+async def get_enterprise_broadband_low_light_details(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 50,
+) -> dict:
+    """分页获取企宽弱光通报横山未恢复明细"""
+    from app.core.models import EnterpriseBroadbandLowLightRecord
+    from sqlalchemy import func
+
+    count_stmt = select(func.count()).select_from(EnterpriseBroadbandLowLightRecord)
+    r1 = await db.execute(count_stmt)
+    total = r1.scalar() or 0
+
+    offset = (page - 1) * page_size
+    data_stmt = (
+        select(EnterpriseBroadbandLowLightRecord)
+        .order_by(EnterpriseBroadbandLowLightRecord.id.asc())
+        .offset(offset)
+        .limit(page_size)
+    )
+    r2 = await db.execute(data_stmt)
+    rows = r2.scalars().all()
+
+    records = []
+    for row in rows:
+        records.append({
+            "id": row.id,
+            "district": row.district,
+            "date": row.date,
+            "olt_name": row.olt_name,
+            "olt_ip": row.olt_ip,
+            "pon_port": row.pon_port,
+            "onu_id": row.onu_id,
+            "rx_power_dbm": row.rx_power_dbm,
+            "community": row.community,
+            "account_bandwidth": row.account_bandwidth,
+        })
+
+    return {
+        "records": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }

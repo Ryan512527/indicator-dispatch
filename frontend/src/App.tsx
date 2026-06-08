@@ -15,6 +15,7 @@ import { OfflineDispatchDetail } from './pages/OfflineDispatchDetail'
 import { RetryWarningDetailPage } from './pages/RetryWarningDetail'
 import { EnterpriseBroadbandFaultDetail } from './pages/EnterpriseBroadbandFaultDetail'
 import { PoorQualityWorkOrderDetail } from './pages/PoorQualityWorkOrderDetail'
+import { EnterpriseBroadbandLowLightDetail } from './pages/EnterpriseBroadbandLowLightDetail'
 import type { Page } from './types'
 
 
@@ -40,6 +41,7 @@ export default function App() {
         page.name === 'retry-warning-detail' ? '/retry-warning' :
         page.name === 'enterprise-broadband-fault-detail' ? '/enterprise-broadband-fault' :
         page.name === 'poor-quality-work-order-detail' ? '/poor-quality-work-order' :
+        page.name === 'enterprise-broadband-low-light-detail' ? '/enterprise-broadband-low-light' :
         ''
       }
       onNavigate={(p: string | Page) => {
@@ -68,6 +70,7 @@ export default function App() {
       {page.name === 'retry-warning-detail' && <RetryWarningDetailPage onNavigate={p => setPage(p)} />}
       {page.name === 'enterprise-broadband-fault-detail' && <EnterpriseBroadbandFaultDetail onBack={() => setPage({ name: 'dashboard' })} />}
       {page.name === 'poor-quality-work-order-detail' && <PoorQualityWorkOrderDetail onBack={() => setPage({ name: 'dashboard' })} />}
+      {page.name === 'enterprise-broadband-low-light-detail' && <EnterpriseBroadbandLowLightDetail onBack={() => setPage({ name: 'dashboard' })} />}
     </Layout>
   )
 }

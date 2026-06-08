@@ -517,6 +517,45 @@ class PoorQualityWorkOrderRecord(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+# ── 企宽弱光通报专用模型 ──
+
+class EnterpriseBroadbandLowLightSummary(Base):
+    """企宽弱光通报 - 横山汇总指标（来自"企宽通报"sheet）
+    字段：企宽总量、月完成量、月完成率、县区排名
+    """
+    __tablename__ = "enterprise_broadband_low_light_summary"
+
+    id = Column(BigInteger, primary_key=True)
+    report_date = Column(String(50), comment="通报日期，如 2026-06-08")
+    district = Column(String(50), default="横山", comment="区县")
+    latest_filename = Column(String(255), comment="报表文件名")
+    total_count = Column(String(50), comment="企宽总量")
+    monthly_completed = Column(String(50), comment="月完成量")
+    monthly_completion_rate = Column(String(50), comment="月完成率")
+    county_rank = Column(String(50), comment="县区排名（第X名/13）")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class EnterpriseBroadbandLowLightRecord(Base):
+    """企宽弱光通报 - 横山未恢复明细（来自"企宽清单"sheet）
+    筛选条件：区县=横山，是否恢复!=是
+    """
+    __tablename__ = "enterprise_broadband_low_light_record"
+
+    id = Column(BigInteger, primary_key=True)
+    report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=False, index=True)
+    district = Column(String(50), comment="区县")
+    date = Column(String(50), comment="日期")
+    olt_name = Column(String(200), comment="OLT名称")
+    olt_ip = Column(String(100), comment="OLT-IP")
+    pon_port = Column(String(100), comment="PON口")
+    onu_id = Column(String(50), comment="ONU-ID")
+    rx_power_dbm = Column(String(50), comment="收光dbm")
+    community = Column(String(300), comment="小区")
+    account_bandwidth = Column(String(200), comment="账号-带宽")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 # ── Notification ──
 
 class Notification(Base):

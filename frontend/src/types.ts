@@ -71,7 +71,8 @@ export type Page =
   | { name: "enterprise-broadband-fault-detail" }
   | { name: "offline-dispatch-detail" }
   | { name: "retry-warning-detail" }
-  | { name: "poor-quality-work-order-detail" };
+  | { name: "poor-quality-work-order-detail" }
+  | { name: "enterprise-broadband-low-light-detail" };
 
 export interface WirelessOutageSummary {
   total: number;
@@ -418,6 +419,36 @@ export interface PoorQualityWorkOrderRecord {
 
 export interface PoorQualityWorkOrderResponse {
   records: PoorQualityWorkOrderRecord[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface EnterpriseBroadbandLowLightSummary {
+  district: string;
+  total_count: string;
+  monthly_completed: string;
+  monthly_completion_rate: string;
+  county_rank: string;
+  report_date: string;
+  latest_filename: string;
+}
+
+export interface EnterpriseBroadbandLowLightRecord {
+  id: number;
+  district: string;
+  date: string;
+  olt_name: string;
+  olt_ip: string;
+  pon_port: string;
+  onu_id: string;
+  rx_power_dbm: string;
+  community: string;
+  account_bandwidth: string;
+}
+
+export interface EnterpriseBroadbandLowLightResponse {
+  records: EnterpriseBroadbandLowLightRecord[];
   total: number;
   page: number;
   page_size: number;
