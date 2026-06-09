@@ -590,4 +590,28 @@ class Notification(Base):
     report_type = Column(String(100), comment="卡片/报表类型名称")
     filename = Column(String(255), comment="来源报表文件名")
     event_time = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), comment="更新时间")
+
+
+# ── AI Analysis Cache ──
+
+class AIAnalysisCache(Base):
+    """AI(贾维斯)分析结果缓存——每次数据更新后自动生成"""
+    __tablename__ = "ai_analysis_cache"
+
+    id = Column(BigInteger, primary_key=True)
+    card_type = Column(String(100), nullable=False, index=True, comment="指标类型，如 complaint_2200000")
+    report_file_id = Column(Integer, comment="关联的 report_file.id")
+    analysis_version = Column(String(50), comment="分析版本/数据指纹（防重复分析）")
+
+    # 结构化结果
+    todos = Column(JSON, default=list, comment="重要事项清单 [{priority,title,description,assignee,deadline,record_ids}]")
+    summary = Column(Text, comment="AI分析摘要(markdown)")
+    risk_level = Column(String(20), default="低", comment="整体风险等级: 高/中/低")
+
+    # 推送状态
+    pushed = Column(Boolean, default=False, comment="是否已推送WxPusher")
+    push_time = Column(DateTime(timezone=True), comment="WxPusher推送时间")
+
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), comment="分析生成时间")
+    expires_at = Column(DateTime(timezone=True), comment="缓存过期时间")
     is_read = Column(Boolean, default=False, comment="是否已读")

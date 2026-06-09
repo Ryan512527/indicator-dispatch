@@ -478,3 +478,25 @@ export interface Notification {
   event_time: string;
   is_read: boolean;
 }
+
+// ── AI 分析 ──
+
+export interface AITodoItem {
+  priority: string;       // 高/中/低
+  title: string;
+  description: string;
+  assignee: string;
+  deadline: string;
+  record_ids: number[];
+}
+
+export interface AIAnalysisResult {
+  status: string;              // ok / empty / triggered
+  card_type: string;
+  todos: AITodoItem[];
+  summary: string;             // markdown
+  risk_level: string;          // 高/中/低
+  pushed: boolean;
+  created_at: string | null;
+  analysis_version: string;
+}

@@ -4402,6 +4402,13 @@ async def reparse_complaint_2200000(db: AsyncSession, directory: Optional[str] =
 
     await db.commit()
 
+    # ── 贾维斯：数据更新后自动触发 AI 分析 ──
+    try:
+        from app.ai.ai_scheduler import trigger_ai_analysis
+        asyncio.create_task(trigger_ai_analysis("complaint_2200000", db))
+    except Exception:
+        pass
+
     return {
         "summary_parsed": summary_count,
         "detail_parsed": detail_count,

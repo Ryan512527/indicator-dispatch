@@ -171,6 +171,41 @@ async def ai_chat(
     return await ai_chat_handler(req.message, db, req.history)
 
 
+# ── 贾维斯 AI 分析 ──
+
+@router.get("/ai/analysis/{card_type}")
+async def get_ai_analysis(
+    card_type: str,
+    force_refresh: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    """获取指标卡片的 AI 分析缓存。force_refresh=True 则强制重新分析。"""
+    from app.ai.ai_scheduler import get_analysis_cache
+    return await get_analysis_cache(db, card_type, force_refresh=force_refresh)
+
+
+@router.post("/ai/analysis/{card_type}/refresh")
+async def refresh_ai_analysis(
+    card_type: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """强制触发 AI 分析（后台异步执行，立即返回）。"""
+    from app.ai.ai_scheduler import trigger_ai_analysis
+    import asyncio
+    asyncio.create_task(trigger_ai_analysis(card_type, db))
+    return {"status": "triggered", "card_type": card_type}
+
+
+@router.get("/ai/analysis/{card_type}/cache")
+async def get_ai_analysis_cache(
+    card_type: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """仅查询缓存，不触发分析（用于前端轮询）。"""
+    from app.ai.ai_scheduler import get_analysis_cache
+    return await get_analysis_cache(db, card_type, force_refresh=False)
+
+
 # ── File sources (for latest file detection) ──
 
 @router.get("/sources")

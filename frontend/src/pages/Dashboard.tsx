@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
-import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailRecord, RetryWarningSummary, EnterpriseBroadbandFaultSummary, PoorQualityWorkOrderSummary, EnterpriseBroadbandLowLightSummary, BroadbandRedelivery2Summary } from '../types'
+import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailRecord, RetryWarningSummary, EnterpriseBroadbandFaultSummary, PoorQualityWorkOrderSummary, EnterpriseBroadbandLowLightSummary, BroadbandRedelivery2Summary, AIAnalysisResult } from '../types'
 
 function fmt(iso: string) {
   if (!iso) return ''
@@ -2248,10 +2248,224 @@ function ReportTypeCards({ onNavigate }: { onNavigate: (p: Page) => void }) {
   )
 }
 
+// ── AI 分析弹窗 (贾维斯) ──
+
+function AIAnalysisDrawer({
+  open,
+  cardType,
+  cardLabel,
+  onClose,
+}: {
+  open: boolean;
+  cardType: string;
+  cardLabel: string;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [result, setResult] = useState<AIAnalysisResult | null>(null)
+  const [errorMsg, setErrorMsg] = useState('')
+
+  useEffect(() => {
+    if (!open) return
+    loadCache()
+  }, [open, cardType])
+
+  const loadCache = async () => {
+    setLoading(true)
+    setErrorMsg('')
+    try {
+      const data = await (api as any).getAIAnalysis(cardType, false)
+      setResult(data)
+    } catch (e: any) {
+      setErrorMsg('加载失败：' + (e.message || '未知错误'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRefresh = async () => {
+    setRefreshing(true)
+    setErrorMsg('')
+    try {
+      await (api as any).refreshAIAnalysis(cardType)
+      // 等待分析完成（轮询最多 30 秒）
+      let attempts = 0
+      while (attempts < 30) {
+        await new Promise(r => setTimeout(r, 1000))
+        attempts++
+        try {
+          const data = await (api as any).getAIAnalysis(cardType, false)
+          if (data.status === 'ok') {
+            setResult(data)
+            break
+          }
+        } catch {}
+      }
+    } catch (e: any) {
+      setErrorMsg('刷新失败：' + (e.message || '未知错误'))
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const riskColor: Record<string, string> = {
+    '高': '#dc2626',
+    '中': '#f59e0b',
+    '低': '#16a34a',
+  }
+
+  if (!open) return null
+
+  return (
+    <div style={{
+      position: 'fixed', top: 0, right: 0, bottom: 0, left: 0,
+      background: 'rgba(0,0,0,0.35)', zIndex: 1000,
+      display: 'flex', justifyContent: 'flex-end',
+    }} onClick={onClose}>
+      <div
+        style={{
+          width: 480, maxWidth: '90vw', height: '100vh',
+          background: '#fff', boxShadow: '-4px 0 20px rgba(0,0,0,0.15)',
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* 头部 */}
+        <div style={{
+          padding: '16px 20px', borderBottom: '1px solid #eee',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: '#fff',
+        }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>🤖 贾维斯 · AI 分析</div>
+            <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>{cardLabel}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              style={{
+                padding: '5px 12px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.5)',
+                background: 'rgba(255,255,255,0.15)', color: '#fff', cursor: 'pointer',
+                fontSize: 12, opacity: refreshing ? 0.5 : 1,
+              }}
+            >
+              {refreshing ? '分析中...' : '🔄 重新分析'}
+            </button>
+            <button onClick={onClose} style={{
+              background: 'none', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer', lineHeight: 1,
+            }}>✕</button>
+          </div>
+        </div>
+
+        {/* 主体 */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>加载中...</div>
+          ) : errorMsg ? (
+            <div style={{ textAlign: 'center', padding: 40, color: '#dc2626' }}>{errorMsg}</div>
+          ) : !result || result.status === 'empty' ? (
+            <div style={{ textAlign: 'center', padding: 40 }}>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>🤖</div>
+              <div style={{ color: '#999', marginBottom: 16 }}>暂无分析数据</div>
+              <button
+                onClick={handleRefresh}
+                style={{
+                  padding: '8px 20px', borderRadius: 8, border: 'none',
+                  background: 'linear-gradient(135deg, #667eea, #764ba2)', color: '#fff',
+                  cursor: 'pointer', fontSize: 14,
+                }}
+              >
+                立即分析
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* 风险等级 + 摘要 */}
+              <div style={{
+                padding: '12px 16px', borderRadius: 10, marginBottom: 16,
+                background: result.risk_level === '高' ? '#fef2f2' : result.risk_level === '中' ? '#fffbeb' : '#f0fdf4',
+                borderLeft: `4px solid ${riskColor[result.risk_level] || '#16a34a'}`,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontWeight: 700, color: riskColor[result.risk_level] || '#16a34a' }}>
+                    风险等级：{result.risk_level}
+                  </span>
+                  {result.pushed && (
+                    <span style={{ fontSize: 11, color: '#16a34a', background: '#dcfce7', padding: '1px 8px', borderRadius: 10 }}>
+                      ✅ 已推送
+                    </span>
+                  )}
+                </div>
+                {result.summary && (
+                  <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }}
+                    dangerouslySetInnerHTML={{ __html: result.summary.replace(/\n/g, '<br/>') }}
+                  />
+                )}
+                {result.created_at && (
+                  <div style={{ fontSize: 11, color: '#999', marginTop: 8 }}>
+                    分析时间：{new Date(result.created_at).toLocaleString('zh-CN')}
+                  </div>
+                )}
+              </div>
+
+              {/* Todos 列表 */}
+              {result.todos && result.todos.length > 0 ? (
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: '#1a1a2e', marginBottom: 10 }}>
+                    需处理事项（{result.todos.length}）
+                  </div>
+                  {result.todos.map((todo: any, idx: number) => (
+                    <div key={idx} style={{
+                      padding: '10px 14px', borderRadius: 10, marginBottom: 10,
+                      border: `1px solid ${todo.priority === '高' ? '#fecaca' : todo.priority === '中' ? '#fde68a' : '#bbf7d0'}`,
+                      background: todo.priority === '高' ? '#fff5f5' : todo.priority === '中' ? '#fffef0' : '#f0fdf4',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span style={{
+                          display: 'inline-block', padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
+                          background: todo.priority === '高' ? '#dc2626' : todo.priority === '中' ? '#f59e0b' : '#16a34a',
+                          color: '#fff',
+                        }}>
+                          {todo.priority}
+                        </span>
+                        <span style={{ fontWeight: 600, color: '#1a1a2e', fontSize: 14 }}>
+                          {idx + 1}. {todo.title}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, marginBottom: 6 }}>
+                        {todo.description}
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, fontSize: 12, color: '#6b7280', flexWrap: 'wrap' }}>
+                        {todo.assignee && todo.assignee !== '待分配' && (
+                          <span>👤 处理人：{todo.assignee}</span>
+                        )}
+                        {todo.deadline && (
+                          <span>⏰ 时限：{todo.deadline}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ textAlign: 'center', padding: 20, color: '#999' }}>
+                  暂无待处理事项，一切正常 ✅
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── 2200000及时率通报 卡片 ──
 function Complaint2200000Card({ onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
   const [summary, setSummary] = useState<Complaint2200000Summary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [aiOpen, setAiOpen] = useState(false)
 
   useEffect(() => {
     setLoading(true)
@@ -2272,6 +2486,7 @@ function Complaint2200000Card({ onNavigate }: { color: string; onNavigate: (p: P
   const escalateComplaint = summary?.escalate_complaint || '—'
 
   return (
+    <>
     <div
       onClick={() => onNavigate({ name: 'complaint-2200000-detail' })}
       style={{
@@ -2288,9 +2503,21 @@ function Complaint2200000Card({ onNavigate }: { color: string; onNavigate: (p: P
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e' }}>2200000及时率通报</span>
-        {reportDate && (
-          <span style={{ fontSize: 11, color: '#999' }}>{reportDate.slice(5)}</span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); setAiOpen(true); }}
+            style={{
+              padding: '3px 10px', borderRadius: 6, border: '1px solid #818cf8',
+              background: 'linear-gradient(135deg, #818cf8, #a78bfa)', color: '#fff',
+              cursor: 'pointer', fontSize: 11, fontWeight: 600,
+            }}
+          >
+            🤖 AI分析
+          </button>
+          {reportDate && (
+            <span style={{ fontSize: 11, color: '#999' }}>{reportDate.slice(5)}</span>
+          )}
+        </div>
       </div>
 
       {/* 月派单量 - 大数字 */}
@@ -2343,8 +2570,17 @@ function Complaint2200000Card({ onNavigate }: { color: string; onNavigate: (p: P
         </div>
       </div>
     </div>
+    {/* AI 分析弹窗 */}
+    <AIAnalysisDrawer
+      open={aiOpen}
+      cardType="complaint_2200000"
+      cardLabel="2200000投诉积压"
+      onClose={() => setAiOpen(false)}
+    />
+  </>
   )
 }
+
 
 // ── 家宽重投2次 卡片 ──
 function BroadbandRedelivery2Card({ color }: { color: string }) {

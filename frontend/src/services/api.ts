@@ -7,7 +7,7 @@ async function fetchJson<T>(url: string, params?: Record<string, string>): Promi
   return res.json();
 }
 
-import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailResponse, RetryWarningSummary, RetryWarningDetailResponse, CustomerRepairDetailResponse, EnterpriseBroadbandFaultSummary, EnterpriseBroadbandFaultRecord, EnterpriseBroadbandFaultResponse, PoorQualityWorkOrderSummary, PoorQualityWorkOrderResponse, EnterpriseBroadbandLowLightSummary, EnterpriseBroadbandLowLightResponse, BroadbandRedelivery2Summary } from '../types';
+import type { ReportType, ReportRecord, WirelessOutageSummary, WirelessOutageTrend, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, EnterpriseBroadbandBacklogRecord, DailyReportSummary, DailyReportBacklogRecord, CityWorkloadSummary, CityWorkloadWorker, FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailResponse, RetryWarningSummary, RetryWarningDetailResponse, CustomerRepairDetailResponse, EnterpriseBroadbandFaultSummary, EnterpriseBroadbandFaultRecord, EnterpriseBroadbandFaultResponse, PoorQualityWorkOrderSummary, PoorQualityWorkOrderResponse, EnterpriseBroadbandLowLightSummary, EnterpriseBroadbandLowLightResponse, BroadbandRedelivery2Summary, AIAnalysisResult } from '../types';
 
 export const api = {
   health: () => fetchJson<{ status: string }>('/health'),
@@ -274,6 +274,18 @@ export const api = {
   reparseComplaint2200000: async () => {
     const res = await fetch(`${BASE}/reports/complaint-2200000/reparse`, { method: 'POST' });
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
+    return res.json();
+  },
+
+  // ── AI 分析 (贾维斯) ──
+  getAIAnalysis: async (cardType: string, forceRefresh = false) => {
+    const res = await fetch(`${BASE}/ai/analysis/${cardType}?force_refresh=${forceRefresh}`);
+    if (!res.ok) throw new Error(`AI analysis failed: ${res.status}`);
+    return res.json();
+  },
+  refreshAIAnalysis: async (cardType: string) => {
+    const res = await fetch(`${BASE}/ai/analysis/${cardType}/refresh`, { method: 'POST' });
+    if (!res.ok) throw new Error(`AI refresh failed: ${res.status}`);
     return res.json();
   },
 
