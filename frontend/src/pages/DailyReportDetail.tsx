@@ -38,6 +38,7 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [exportingToExcel, setExportingToExcel] = useState(false)
   const [exportingToFeishu, setExportingToFeishu] = useState(false)
+  const [feishuResult, setFeishuResult] = useState<{ url: string; rows: number } | null>(null)
   const pageSize = 50
 
   useEffect(() => {
@@ -93,10 +94,7 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
       const result = await api.exportDailyReportToFeishuSheet()
       const url = result.url as string
       if (url) {
-        const msg = '成功导出 ' + (result.rows_written || 0) + ' 条记录到飞书表格！\n\n点击「确定」在新标签页打开表格，点击「取消」关闭。'
-        if (window.confirm(msg)) {
-          window.open(url, '_blank')
-        }
+        setFeishuResult({ url, rows: result.rows_written || 0 })
       } else {
         alert('导出失败：未获取到表格链接')
       }
@@ -245,6 +243,48 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
           </button>
         </span>
       </div>
+
+      {/* 飞书导出成功提示 */}
+      {feishuResult && (
+        <div style={{
+          marginBottom: 16,
+          padding: '12px 20px',
+          background: '#ecfdf5',
+          border: '1px solid #a7f3d0',
+          borderRadius: 8,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: 14,
+          color: '#065f46',
+        }}>
+          <span>
+            成功导出 <b>{feishuResult.rows}</b> 条记录到飞书表格！
+            <a
+              href={feishuResult.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ marginLeft: 8, color: '#047857', textDecoration: 'underline', fontWeight: 600 }}
+            >
+              点击打开表格 →
+            </a>
+          </span>
+          <button
+            onClick={() => setFeishuResult(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: '#065f46',
+              fontSize: 18,
+              lineHeight: 1,
+              padding: '0 4px',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* 积压时长概览 */}
       <div style={{

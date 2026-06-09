@@ -190,18 +190,45 @@ def set_header_style(spreadsheet_token: str, sheet_id: str, col_count: int) -> N
     }
 
     resp = requests.put(
-        f"https://open.feishu.cn/open-apis/sheets/v3/spreadsheets/{spreadsheet_token}/styles",
+        f"https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/{spreadsheet_token}/style",
         headers=_headers(),
         json=body,
         timeout=15,
     )
     # 样式设置失败不抛异常（非致命）
+    print(f"[debug] set_header_style resp.status_code={resp.status_code}, resp.text={resp.text[:300]}", flush=True)
     try:
         data = resp.json()
         if data.get("code") != 0:
-            print(f"[warn] 设置表头样式失败: {data.get('msg')}")
+            print(f"[warn] 设置表头样式失败: {data.get('msg')}", flush=True)
+        else:
+            print(f"[info] 表头样式设置成功", flush=True)
     except Exception as e:
-        print(f"[warn] 设置表头样式失败（响应解析错误）: {e}")
+        print(f"[warn] 设置表头样式失败（响应解析错误）: {e}, resp.text={resp.text[:300]}", flush=True)
+
+
+def set_spreadsheet_public_edit(spreadsheet_token: str) -> None:
+    """
+    设置电子表格为「互联网上获得链接的任何人可编辑」
+    通过 Drive API v1 更新文档权限设置
+    """
+    url = f"https://open.feishu.cn/open-apis/drive/v1/permissions/{spreadsheet_token}/public?type=sheet"
+
+    body = {
+        "link_share_entity": "anyone_editable",   # 互联网上获得链接的任何人可编辑
+        "share_entity": "anyone",
+        "comment_entity": "anyone_can_edit",
+    }
+
+    resp = requests.patch(url, headers=_headers(), json=body, timeout=15)
+    try:
+        data = resp.json()
+        if data.get("code") != 0:
+            print(f"[warn] 设置表格公开编辑权限失败: {data.get('msg')} (code={data.get('code')})")
+        else:
+            print(f"[info] 已设置表格为「互联网上获得链接的任何人可编辑」")
+    except Exception as e:
+        print(f"[warn] 设置表格权限失败（响应解析错误）: {e}, resp.text={resp.text[:300]}")
 
 
 # ── 业务入口 ────────────────────────────────────────────────────────────────
@@ -248,7 +275,10 @@ def export_daily_report_to_feishu(
             chunk = values[i:i + MAX_WRITE]
             append_values(spreadsheet_token, sheet_id, chunk, len(field_names))
 
-    # 5. 设置表头样式
+    # 5. 设置表格为「获得链接的任何人可编辑」
+    set_spreadsheet_public_edit(spreadsheet_token)
+
+    # 6. 设置表头样式
     set_header_style(spreadsheet_token, sheet_id, len(field_names))
 
     return {
