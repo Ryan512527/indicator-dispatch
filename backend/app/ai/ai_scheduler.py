@@ -48,16 +48,12 @@ async def trigger_ai_analysis(card_type: str, db: AsyncSession) -> None:
     async def _do_analyze():
         try:
             # 创建独立的数据库会话（避免污染 reparse 的事务）
-            from app.core.database import get_session
-            async for session in get_session():
-                try:
-                    await analyze_card(card_type, session)
-                    await session.commit()
-                finally:
-                    await session.close()
-                break
+            from app.core.database import async_session
+            async with async_session() as session:
+                await analyze_card(card_type, session)
+                await session.commit()
         except Exception as e:
-            logger.error(f"[AI分析失败] card_type={card_type}: {e}")
+            logger.error(f"[AI分析失败] card_type={card_type}: {e}", exc_info=True)
 
     # 取消同类型正在进行的分析（避免重复）
     if card_type in _pending_tasks and not _pending_tasks[card_type].done():
@@ -76,6 +72,9 @@ async def analyze_card(card_type: str, db: AsyncSession) -> dict:
 
     analysis_map = {
         "complaint_2200000": _analyze_complaint_2200000,
+        "daily-report": _analyze_daily_report,
+        "city-workload": _analyze_city_workload,
+        "offline-dispatch": _analyze_offline_dispatch,
     }
 
     handler = analysis_map.get(card_type)
@@ -218,15 +217,467 @@ def _build_2200000_prompt(records: list[dict], now_str: str) -> str:
 - 只输出 JSON，不要任何额外文字"""
 
 
-def _parse_analysis_response(content: str) -> dict:
-    """从 LLM 返回内容中提取 JSON 结果。"""
+# ═══════════════════════════════════════════
+# 日报（daily-report）分析
+# ═══════════════════════════════════════════
+
+async def _analyze_daily_report(db: AsyncSession) -> dict:
+    """分析日报 — 两类/五类装机成功率 + 积压清单，生成重点关注事项。"""
+    from app.core.models import DailyReportSummary, DailyReportBacklog, AIAnalysisCache
+
+    # 汇总数据
+    stmt_sum = select(DailyReportSummary).order_by(DailyReportSummary.id.desc()).limit(1)
+    result = await db.execute(stmt_sum)
+    summary = result.scalar_one_or_none()
+
+    # 积压明细（取积压超过 24h 的，最多 50 条）
+    stmt_log = (
+        select(DailyReportBacklog)
+        .order_by(DailyReportBacklog.id.desc())
+        .limit(200)
+    )
+    log_result = await db.execute(stmt_log)
+    all_rows = log_result.scalars().all()
+    # 只取积压时长 > 24h 的
+    backlog_rows = []
+    for row in all_rows:
+        try:
+            bh = float(row.backlog_hours or "0")
+        except (ValueError, TypeError):
+            bh = 0
+        if bh > 24:
+            backlog_rows.append(row)
+
+    if not summary and not backlog_rows:
+        return {"status": "no_data"}
+
+    records = []
+    for row in backlog_rows[:15]:
+        records.append({
+            "id": row.id,
+            "宽带账号": row.account,
+            "施工地址": row.address,
+            "施工人": row.worker_name,
+            "积压时长h": row.backlog_hours,
+            "完成时限": row.deadline,
+            "用户品牌": row.user_brand,
+            "数据来源": row.data_source,
+        })
+
+    summary_data = None
+    if summary:
+        summary_data = {
+            "日期": summary.report_date,
+            "两类_积压总量": summary.two_cat_backlog_total,
+            "两类_家宽转化率": summary.two_cat_broadband_rate,
+            "两类_FTTR转化率": summary.two_cat_fttr_rate,
+            "两类_总装机转化率": summary.two_cat_total_rate,
+            "五类_积压总量": summary.five_cat_backlog_total,
+            "五类_家宽转化率": summary.five_cat_broadband_rate,
+            "五类_智能组网": summary.five_cat_smart_network,
+            "五类_平安乡村": summary.five_cat_safe_village,
+            "五类_FTTR转化率": summary.five_cat_fttr_rate,
+            "五类_总装机转化率": summary.five_cat_total_rate,
+        }
+
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    prompt = _build_daily_report_prompt(summary_data, records, now_str)
+
     try:
-        # 尝试直接解析
+        llm_response = await chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=8192,
+        )
+        content = llm_response.get("choices", [{}])[0].get("message", {}).get("content", "")
+    except Exception as e:
+        logger.error(f"[AI分析] 日报 LLM 调用失败: {e}")
+        return {"status": "llm_error", "error": str(e)}
+
+    parsed = _parse_analysis_response(content)
+
+    fingerprint = _build_version_fingerprint({"card_type": "daily-report", "records": records, "summary": summary_data})
+
+    existing = await db.execute(
+        select(AIAnalysisCache).where(
+            AIAnalysisCache.card_type == "daily-report",
+            AIAnalysisCache.analysis_version == fingerprint,
+        )
+    )
+    if existing.scalar_one_or_none():
+        logger.info("[AI分析] 日报数据未变化，跳过写入缓存")
+        return {"status": "cached", "fingerprint": fingerprint}
+
+    cache = AIAnalysisCache(
+        card_type="daily-report",
+        report_file_id=backlog_rows[0].report_file_id if backlog_rows else None,
+        analysis_version=fingerprint,
+        todos=parsed.get("todos", []),
+        summary=parsed.get("summary", ""),
+        risk_level=parsed.get("risk_level", "低"),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=6),
+    )
+    db.add(cache)
+    await db.flush()
+
+    await _maybe_push_to_wxpusher(
+        card_type="daily-report",
+        card_label="日报·装机成功率",
+        todos=parsed.get("todos", []),
+        risk_level=parsed.get("risk_level", "低"),
+        cache_id=cache.id,
+    )
+
+    logger.info(f"[AI分析] daily-report 完成, risk={cache.risk_level}, todos={len(cache.todos)}")
+    return {"status": "done", "todos_count": len(cache.todos), "risk_level": cache.risk_level}
+
+
+def _build_daily_report_prompt(summary_data: dict | None, records: list[dict], now_str: str) -> str:
+    data_json = json.dumps({"汇总指标": summary_data, "积压超过24h工单": records}, ensure_ascii=False, indent=2)
+
+    return f"""你是"指标调度平台"的AI调度助手，代号贾维斯。
+
+以下是横山地区【日报·装机成功率】最新数据（当前时间 {now_str}）：
+
+{data_json}
+
+请扮演运维调度专家，完成分析并以**严格JSON**输出（不要输出markdown代码块标记，直接输出JSON对象）：
+
+{{
+  "risk_level": "高/中/低",
+  "summary": "1-2句话的整体情况描述（中文，含转化率趋势判断）",
+  "todos": [
+    {{
+      "priority": "高/中/低",
+      "title": "简短标题（15字内）",
+      "description": "详细说明，含具体账号/地址/施工人信息",
+      "assignee": "建议处理人姓名",
+      "deadline": "完成时限或建议处理时限",
+      "record_ids": [123, 456]
+    }}
+  ]
+}}
+
+分析重点（按优先级排序）：
+1. 转化率异常：任何转化率低于同类均值的类别 → 高优先级
+2. 积压超过48h的工单 → 高优先级，必须列出施工人+地址
+3. 同一施工人多次出现 → 中优先级
+4. FTTR转化率低于家宽转化率 → 中优先级
+5. assignee 优先填施工人字段的值，若无则填"待分配"
+
+注意：
+- todos 按优先级从高到低排序
+- 最多输出 8 条 todos
+- description 控制在80字以内
+- 只输出 JSON，不要任何额外文字"""
+
+
+# ═══════════════════════════════════════════
+# 全市装维工作量统计（city-workload）分析
+# ═══════════════════════════════════════════
+
+async def _analyze_city_workload(db: AsyncSession) -> dict:
+    """分析装维工作量 — 人员出勤 + 积压分布，发现风险人员/网格。"""
+    from app.core.models import CityWorkloadSummary, CityWorkloadWorker, AIAnalysisCache
+
+    stmt_sum = select(CityWorkloadSummary).order_by(CityWorkloadSummary.id.desc()).limit(1)
+    result = await db.execute(stmt_sum)
+    summary = result.scalar_one_or_none()
+
+    stmt_w = select(CityWorkloadWorker).order_by(CityWorkloadWorker.id.desc()).limit(200)
+    w_result = await db.execute(stmt_w)
+    workers = w_result.scalars().all()
+
+    if not summary and not workers:
+        return {"status": "no_data"}
+
+    # 提取高积压人员（核心积压=装移拆+投诉+巡检，排除LAN）
+    high_backlog = []
+    for w in workers:
+        wl = w.workload or {}
+        # 计算核心积压（装移拆 + 投诉 + 巡检），LAN不参与优先级判断
+        core_backlog = 0
+        for key in ("装移拆", "投诉", "巡检"):
+            if key in wl and isinstance(wl[key], dict):
+                core_backlog += int(wl[key].get("backlog", 0) or 0)
+        # LAN积压单独记录供参考
+        lan_backlog = 0
+        if "LAN" in wl and isinstance(wl["LAN"], dict):
+            lan_backlog = int(wl["LAN"].get("backlog", 0) or 0)
+        # 以核心积压为准判断是否高积压（>3即纳入分析）
+        if core_backlog > 3:
+            high_backlog.append({
+                "姓名": w.worker_name,
+                "区域": w.area,
+                "网格": w.grid,
+                "核心积压总量": core_backlog,
+                "LAN积压(仅供参考)": lan_backlog,
+                "积压总量": w.total_backlog,
+                "当日工作量": w.total_today,
+                "工作类型明细": wl,
+            })
+
+    high_backlog.sort(key=lambda x: x["核心积压总量"], reverse=True)
+
+    summary_data = None
+    if summary:
+        summary_data = {
+            "日期": summary.report_date,
+            "人员数量": summary.total_staff,
+            "有工作量人数": summary.working_staff,
+            "请假人数": summary.leave_staff,
+            "无工作量占比": summary.no_work_ratio,
+        }
+
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    prompt = _build_workload_prompt(summary_data, high_backlog[:15], now_str)
+
+    try:
+        llm_response = await chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=8192,
+        )
+        content = llm_response.get("choices", [{}])[0].get("message", {}).get("content", "")
+    except Exception as e:
+        logger.error(f"[AI分析] 装维工作量 LLM 调用失败: {e}")
+        return {"status": "llm_error", "error": str(e)}
+
+    parsed = _parse_analysis_response(content)
+
+    fingerprint = _build_version_fingerprint({
+        "card_type": "city-workload",
+        "summary": summary_data,
+        "high_backlog": [w["姓名"] for w in high_backlog[:15]],
+        "version": 2,  # v2: 核心积压（装移拆+投诉+巡检），排除LAN
+    })
+
+    existing = await db.execute(
+        select(AIAnalysisCache).where(
+            AIAnalysisCache.card_type == "city-workload",
+            AIAnalysisCache.analysis_version == fingerprint,
+        )
+    )
+    if existing.scalar_one_or_none():
+        logger.info("[AI分析] 装维工作量数据未变化，跳过写入缓存")
+        return {"status": "cached", "fingerprint": fingerprint}
+
+    cache = AIAnalysisCache(
+        card_type="city-workload",
+        report_file_id=None,
+        analysis_version=fingerprint,
+        todos=parsed.get("todos", []),
+        summary=parsed.get("summary", ""),
+        risk_level=parsed.get("risk_level", "低"),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=6),
+    )
+    db.add(cache)
+    await db.flush()
+
+    await _maybe_push_to_wxpusher(
+        card_type="city-workload",
+        card_label="装维工作量",
+        todos=parsed.get("todos", []),
+        risk_level=parsed.get("risk_level", "低"),
+        cache_id=cache.id,
+    )
+
+    logger.info(f"[AI分析] city-workload 完成, risk={cache.risk_level}, todos={len(cache.todos)}")
+    return {"status": "done", "todos_count": len(cache.todos), "risk_level": cache.risk_level}
+
+
+def _build_workload_prompt(summary_data: dict | None, high_backlog: list[dict], now_str: str) -> str:
+    data_json = json.dumps({"汇总": summary_data, "高积压人员(核心积压>3件)": high_backlog}, ensure_ascii=False, indent=2)
+
+    return f"""你是"指标调度平台"的AI调度助手，代号贾维斯。
+
+以下是横山地区【全市装维工作量统计】最新数据（当前时间 {now_str}）：
+
+{data_json}
+
+说明：核心积压总量 = 装移拆积压 + 投诉积压 + 巡检积压，**不含LAN**。
+LAN积压数量级大（通常几十到上百件），属于批量维护类工单，单独列出仅供参考，**不参与低中高优先级判断**。
+
+请扮演运维调度专家，完成分析并以**严格JSON**输出（不要输出markdown代码块标记，直接输出JSON对象）：
+
+{{
+  "risk_level": "高/中/低",
+  "summary": "1-2句话的整体情况描述（中文），重点关注装移拆/投诉/巡检三项核心指标",
+  "todos": [
+    {{
+      "priority": "高/中/低",
+      "title": "简短标题（15字内）",
+      "description": "详细说明，含具体人员姓名/积压量（区分核心积压和LAN积压）/区域信息",
+      "assignee": "建议处理人姓名（网格长或直接负责人）",
+      "deadline": "建议处理时限",
+      "record_ids": []
+    }}
+  ]
+}}
+
+分析重点（**按核心积压判断优先级，LAN数据不参与优先级计算**）：
+1. 无工作量占比过高（>20%） → 高优先级，需分析人员分布
+2. 单个装维人员**核心积压**（装移拆+投诉+巡检） > 8件 → 高优先级，需调度支援
+3. 同一人员**核心积压** 5-8件 → 中优先级
+4. 请假人数异常（>5人） → 中优先级
+5. 同一网格多人**核心积压**超标 → 中优先级，说明网格整体压力大
+6. 当日核心工作量为0且核心积压 > 3 → 中优先级
+
+注意：
+- 优先级仅基于装移拆、投诉、巡检三项核心积压判断
+- LAN积压数据可在 description 中提及作为参考，但**不能作为提级理由**
+- todos 按优先级从高到低排序
+- 最多输出 8 条 todos
+- assignee 优先填网格长或直接负责人，若无则填"待分配"
+- 只输出 JSON，不要任何额外文字"""
+
+
+
+# ═══════════════════════════════════════════
+# 线下派单处理情况（offline-dispatch）分析
+# ═══════════════════════════════════════════
+
+async def _analyze_offline_dispatch(db: AsyncSession) -> dict:
+    """分析线下派单处理情况 — 超时积压 + VIP客户 + 在途工单。"""
+    from app.core.models import OfflineDispatchSummary, OfflineDispatchDetail, AIAnalysisCache
+
+    stmt_sum = select(OfflineDispatchSummary).order_by(OfflineDispatchSummary.id.desc()).limit(1)
+    result = await db.execute(stmt_sum)
+    summary = result.scalar_one_or_none()
+
+    stmt_d = select(OfflineDispatchDetail).order_by(OfflineDispatchDetail.id.desc()).limit(200)
+    d_result = await db.execute(stmt_d)
+    details = d_result.scalars().all()
+
+    if not summary and not details:
+        return {"status": "no_data"}
+
+    records = []
+    for row in details[:50]:
+        records.append({
+            "id": row.id,
+            "宽带账号": row.broadband_account,
+            "超时时限": row.timeout_limit,
+            "是否VIP客户": row.is_vip_customer,
+            "客户联系方式": row.customer_contact,
+            "施工地址": row.construction_address,
+            "处理人": row.handler_name,
+            "分类": row.category,
+            "工单号": row.order_no,
+        })
+
+    summary_data = None
+    if summary:
+        summary_data = {
+            "日期": summary.report_date,
+            "月派单量": summary.monthly_dispatch,
+            "超时积压24h": summary.overdue_backlog,
+            "未超时积压24h": summary.not_overdue_backlog,
+            "累计在途": summary.total_in_transit,
+            "预警4h超时": summary.warn_4h_overdue,
+        }
+
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    prompt = _build_offline_dispatch_prompt(summary_data, records, now_str)
+
+    try:
+        llm_response = await chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=8192,
+        )
+        content = llm_response.get("choices", [{}])[0].get("message", {}).get("content", "")
+    except Exception as e:
+        logger.error(f"[AI分析] 线下派单 LLM 调用失败: {e}")
+        return {"status": "llm_error", "error": str(e)}
+
+    parsed = _parse_analysis_response(content)
+
+    fingerprint = _build_version_fingerprint({"card_type": "offline-dispatch", "records": records})
+
+    existing = await db.execute(
+        select(AIAnalysisCache).where(
+            AIAnalysisCache.card_type == "offline-dispatch",
+            AIAnalysisCache.analysis_version == fingerprint,
+        )
+    )
+    if existing.scalar_one_or_none():
+        logger.info("[AI分析] 线下派单数据未变化，跳过写入缓存")
+        return {"status": "cached", "fingerprint": fingerprint}
+
+    cache = AIAnalysisCache(
+        card_type="offline-dispatch",
+        report_file_id=details[0].report_file_id if details else None,
+        analysis_version=fingerprint,
+        todos=parsed.get("todos", []),
+        summary=parsed.get("summary", ""),
+        risk_level=parsed.get("risk_level", "低"),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=6),
+    )
+    db.add(cache)
+    await db.flush()
+
+    await _maybe_push_to_wxpusher(
+        card_type="offline-dispatch",
+        card_label="线下派单",
+        todos=parsed.get("todos", []),
+        risk_level=parsed.get("risk_level", "低"),
+        cache_id=cache.id,
+    )
+
+    logger.info(f"[AI分析] offline-dispatch 完成, risk={cache.risk_level}, todos={len(cache.todos)}")
+    return {"status": "done", "todos_count": len(cache.todos), "risk_level": cache.risk_level}
+
+
+def _build_offline_dispatch_prompt(summary_data: dict | None, records: list[dict], now_str: str) -> str:
+    data_json = json.dumps({"汇总指标": summary_data, "工单明细": records}, ensure_ascii=False, indent=2)
+
+    return f"""你是"指标调度平台"的AI调度助手，代号贾维斯。
+
+以下是横山地区【线下派单处理情况】最新数据（当前时间 {now_str}）：
+
+{data_json}
+
+请扮演运维调度专家，完成分析并以**严格JSON**输出（不要输出markdown代码块标记，直接输出JSON对象）：
+
+{{
+  "risk_level": "高/中/低",
+  "summary": "1-2句话的整体情况描述（中文）",
+  "todos": [
+    {{
+      "priority": "高/中/低",
+      "title": "简短标题（15字内）",
+      "description": "详细说明，含具体账号/地址/处理人信息",
+      "assignee": "建议处理人姓名",
+      "deadline": "超时时间或建议处理时限",
+      "record_ids": [123, 456]
+    }}
+  ]
+}}
+
+分析重点（按优先级排序）：
+1. 预警4h超时数量 > 0 → 高优先级，必须立即处理
+2. VIP客户（"是否VIP客户"="是"）→ 高优先级
+3. 超时积压24h > 0 → 中优先级，需尽快处理
+4. 分类为"在途"的超时工单 → 中优先级
+5. 同一处理人多次出现 → 中优先级
+6. assignee 优先填处理人字段的值，若无则填"待分配"
+
+注意：
+- todos 按优先级从高到低排序
+- 最多输出 10 条 todos
+- 只输出 JSON，不要任何额外文字"""
+
+
+def _parse_analysis_response(content: str) -> dict:
+    """从 LLM 返回内容中提取 JSON 结果。使用平衡括号匹配，可处理前后有额外文本的情况。"""
+    # 1. 尝试直接解析整个文本
+    try:
         return json.loads(content)
     except json.JSONDecodeError:
         pass
 
-    # 尝试提取 ```json ... ``` 块
+    # 2. 尝试提取 ```json ... ``` 或 ``` ... ``` 块
     m = re.search(r'```(?:json)?\s*([\s\S]*?)```', content)
     if m:
         try:
@@ -234,15 +685,33 @@ def _parse_analysis_response(content: str) -> dict:
         except json.JSONDecodeError:
             pass
 
-    # 尝试提取第一个完整 JSON 对象
-    m = re.search(r'\{[\s\S]*\}', content)
-    if m:
+    # 3. 用平衡括号算法找到第一个完整的 JSON 对象
+    brace_count = 0
+    start = -1
+    for i, ch in enumerate(content):
+        if ch == '{':
+            if brace_count == 0:
+                start = i
+            brace_count += 1
+        elif ch == '}':
+            brace_count -= 1
+            if brace_count == 0 and start >= 0:
+                try:
+                    return json.loads(content[start:i + 1])
+                except json.JSONDecodeError:
+                    # 这个括号块不是有效JSON，继续找下一个
+                    start = -1
+
+    # 4. 最后尝试：用贪婪匹配取首个{到末个}（部分场景兜底）
+    first_brace = content.find('{')
+    last_brace = content.rfind('}')
+    if first_brace >= 0 and last_brace > first_brace:
         try:
-            return json.loads(m.group(0))
+            return json.loads(content[first_brace:last_brace + 1])
         except json.JSONDecodeError:
             pass
 
-    logger.error(f"[AI分析] 无法解析 LLM 返回: {content[:500]}")
+    logger.error(f"[AI分析] 无法解析 LLM 返回 (前500字符): {content[:500]}")
     return {"todos": [], "summary": content, "risk_level": "低"}
 
 
@@ -327,6 +796,7 @@ async def get_analysis_cache(
     if force_refresh:
         logger.info(f"[AI分析] 强制刷新 card_type={card_type}")
         await analyze_card(card_type, db)
+        await db.commit()  # 持久化分析结果
 
     # 查询最新缓存
     stmt = (

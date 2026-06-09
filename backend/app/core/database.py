@@ -22,7 +22,7 @@ async def migrate_db():
     在 init_db 之前调用。
     """
     async with engine.begin() as conn:
-        # 先检查表是否存在
+        # ── 迁移1: enterprise_broadband_backlog 表添加 cover_scene 列 ──
         result = await conn.execute(text("""
             SELECT EXISTS (
                 SELECT FROM information_schema.tables 
@@ -30,22 +30,40 @@ async def migrate_db():
             )
         """))
         table_exists = result.scalar()
-        if not table_exists:
-            return
-        # 检查 enterprise_broadband_backlog 表是否有 cover_scene 列
-        result = await conn.execute(text("""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'enterprise_broadband_backlog' 
-            AND column_name = 'cover_scene'
-        """))
-        if result.first() is None:
-            # 列不存在，添加它
-            await conn.execute(text("""
-                ALTER TABLE enterprise_broadband_backlog 
-                ADD COLUMN IF NOT EXISTS cover_scene VARCHAR(50)
+        if table_exists:
+            result = await conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'enterprise_broadband_backlog' 
+                AND column_name = 'cover_scene'
             """))
-            print("Migration: Added cover_scene column to enterprise_broadband_backlog")
+            if result.first() is None:
+                await conn.execute(text("""
+                    ALTER TABLE enterprise_broadband_backlog 
+                    ADD COLUMN IF NOT EXISTS cover_scene VARCHAR(50)
+                """))
+                print("Migration: Added cover_scene column to enterprise_broadband_backlog")
+
+        # ── 迁移2: notifications 表添加 is_read 列 ──
+        result = await conn.execute(text("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'notifications'
+            )
+        """))
+        if result.scalar():
+            result = await conn.execute(text("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'notifications' 
+                AND column_name = 'is_read'
+            """))
+            if result.first() is None:
+                await conn.execute(text("""
+                    ALTER TABLE notifications 
+                    ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT FALSE
+                """))
+                print("Migration: Added is_read column to notifications")
 
 
 async def init_db():

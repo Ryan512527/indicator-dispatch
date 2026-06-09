@@ -590,6 +590,7 @@ class Notification(Base):
     report_type = Column(String(100), comment="卡片/报表类型名称")
     filename = Column(String(255), comment="来源报表文件名")
     event_time = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), comment="更新时间")
+    is_read = Column(Boolean, default=False, comment="是否已读")
 
 
 # ── AI Analysis Cache ──

@@ -813,6 +813,7 @@ function EnterpriseBroadbandCard({ color, onNavigate }: { color: string; onNavig
 function DailyReportCard({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
   const [summary, setSummary] = useState<DailyReportSummary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [aiOpen, setAiOpen] = useState(false)
 
   useEffect(() => {
     api.getDailyReportSummary()
@@ -848,6 +849,7 @@ function DailyReportCard({ color, onNavigate }: { color: string; onNavigate: (p:
   const latestFilename = (summary as any)?.latest_filename || ''
 
   return (
+    <>
     <div
       onClick={() => onNavigate({ name: 'daily-report-detail' })}
       style={{
@@ -885,6 +887,16 @@ function DailyReportCard({ color, onNavigate }: { color: string; onNavigate: (p:
           }}>
             横山
           </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); setAiOpen(true); }}
+            style={{
+              padding: '2px 8px', borderRadius: 6, border: '1px solid #818cf8',
+              background: 'linear-gradient(135deg, #818cf8, #a78bfa)', color: '#fff',
+              cursor: 'pointer', fontSize: 10, fontWeight: 600,
+            }}
+          >
+            🤖 AI分析
+          </button>
         </div>
         <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
           {reportDate || '—'}
@@ -961,6 +973,8 @@ function DailyReportCard({ color, onNavigate }: { color: string; onNavigate: (p:
         </div>
       </div>
     </div>
+    <AIAnalysisDrawer open={aiOpen} cardType="daily-report" cardLabel="日报·装机成功率" onClose={() => setAiOpen(false)} />
+    </>
   )
 }
 
@@ -968,6 +982,7 @@ function DailyReportCard({ color, onNavigate }: { color: string; onNavigate: (p:
 function CityWorkloadCard({ color, onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
   const [summary, setSummary] = useState<CityWorkloadSummary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [aiOpen, setAiOpen] = useState(false)
 
   useEffect(() => {
     api.getCityWorkloadSummary()
@@ -997,6 +1012,7 @@ function CityWorkloadCard({ color, onNavigate }: { color: string; onNavigate: (p
   const latestFilename = (summary as any)?.latest_filename || ''
 
   return (
+    <>
     <div
       onClick={() => onNavigate({ name: 'city-workload-detail' })}
       style={{
@@ -1034,6 +1050,16 @@ function CityWorkloadCard({ color, onNavigate }: { color: string; onNavigate: (p
           }}>
             横山
           </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); setAiOpen(true); }}
+            style={{
+              padding: '2px 8px', borderRadius: 6, border: '1px solid #818cf8',
+              background: 'linear-gradient(135deg, #818cf8, #a78bfa)', color: '#fff',
+              cursor: 'pointer', fontSize: 10, fontWeight: 600,
+            }}
+          >
+            🤖 AI分析
+          </button>
         </div>
         <span style={{ fontSize: 11, color: '#bbb', whiteSpace: 'nowrap' }}>
           {reportDate || '—'}
@@ -1074,6 +1100,8 @@ function CityWorkloadCard({ color, onNavigate }: { color: string; onNavigate: (p
         </div>
       </div>
     </div>
+    <AIAnalysisDrawer open={aiOpen} cardType="city-workload" cardLabel="全市装维工作量统计" onClose={() => setAiOpen(false)} />
+    </>
   )
 }
 
@@ -2289,19 +2317,21 @@ function AIAnalysisDrawer({
     setErrorMsg('')
     try {
       await (api as any).refreshAIAnalysis(cardType)
-      // 等待分析完成（轮询最多 30 秒）
+      // 等待分析完成（轮询最多 60 秒）
       let attempts = 0
-      while (attempts < 30) {
+      while (attempts < 60) {
         await new Promise(r => setTimeout(r, 1000))
         attempts++
         try {
           const data = await (api as any).getAIAnalysis(cardType, false)
           if (data.status === 'ok') {
             setResult(data)
-            break
+            setRefreshing(false)
+            return
           }
         } catch {}
       }
+      setErrorMsg('分析超时，请重试或刷新页面')
     } catch (e: any) {
       setErrorMsg('刷新失败：' + (e.message || '未知错误'))
     } finally {
@@ -2675,6 +2705,7 @@ function BroadbandRedelivery2Card({ color }: { color: string }) {
 function OfflineDispatchCard({ onNavigate }: { color: string; onNavigate: (p: Page) => void }) {
   const [summary, setSummary] = useState<OfflineDispatchSummary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [aiOpen, setAiOpen] = useState(false)
 
   useEffect(() => {
     setLoading(true)
@@ -2693,6 +2724,7 @@ function OfflineDispatchCard({ onNavigate }: { color: string; onNavigate: (p: Pa
   const warn4hOverdue = summary?.warn_4h_overdue || '—'
 
   return (
+    <>
     <div
       style={{
         background: '#fff',
@@ -2708,7 +2740,19 @@ function OfflineDispatchCard({ onNavigate }: { color: string; onNavigate: (p: Pa
       onClick={() => onNavigate({ name: 'offline-dispatch-detail' })}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e' }}>线下派单处理情况</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: '#1a1a2e' }}>线下派单处理情况</span>
+          <button
+            onClick={(e) => { e.stopPropagation(); setAiOpen(true); }}
+            style={{
+              padding: '2px 8px', borderRadius: 6, border: '1px solid #818cf8',
+              background: 'linear-gradient(135deg, #818cf8, #a78bfa)', color: '#fff',
+              cursor: 'pointer', fontSize: 10, fontWeight: 600,
+            }}
+          >
+            🤖 AI分析
+          </button>
+        </div>
         {reportDate && (
           <span style={{ fontSize: 11, color: '#999' }}>{reportDate.slice(5)}</span>
         )}
@@ -2758,6 +2802,8 @@ function OfflineDispatchCard({ onNavigate }: { color: string; onNavigate: (p: Pa
         </div>
       </div>
     </div>
+    <AIAnalysisDrawer open={aiOpen} cardType="offline-dispatch" cardLabel="线下派单处理情况" onClose={() => setAiOpen(false)} />
+    </>
   )
 }
 

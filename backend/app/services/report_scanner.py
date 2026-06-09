@@ -2205,6 +2205,13 @@ async def reparse_daily_report(db: AsyncSession, directory: Optional[str] = None
 
     await db.commit()
 
+    # ── 贾维斯：数据更新后自动触发 AI 分析 ──
+    try:
+        from app.ai.ai_scheduler import trigger_ai_analysis
+        asyncio.create_task(trigger_ai_analysis("daily-report", db))
+    except Exception:
+        pass
+
     return {
         "summary_parsed": summary_count,
         "backlog_count": backlog_count,
@@ -2760,6 +2767,13 @@ async def reparse_city_workload(db: AsyncSession, directory: Optional[str] = Non
     report_type.updated_at = datetime.now(timezone.utc)
 
     await db.commit()
+
+    # ── 贾维斯：数据更新后自动触发 AI 分析 ──
+    try:
+        from app.ai.ai_scheduler import trigger_ai_analysis
+        asyncio.create_task(trigger_ai_analysis("city-workload", db))
+    except Exception:
+        pass
 
     return {
         "summary_parsed": summary_count,
@@ -4810,6 +4824,13 @@ async def reparse_offline_dispatch(db: AsyncSession, directory: Optional[str] = 
         db.add(report_file)
 
     await db.commit()
+
+    # ── 贾维斯：数据更新后自动触发 AI 分析 ──
+    try:
+        from app.ai.ai_scheduler import trigger_ai_analysis
+        asyncio.create_task(trigger_ai_analysis("offline-dispatch", db))
+    except Exception:
+        pass
 
     return {
         "summary_parsed": summary_count,
