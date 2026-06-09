@@ -4,6 +4,7 @@ import type { FiveCategoryWithdrawalSummary, FiveCategoryWithdrawalDetailRecord 
 
 const DISPLAY_FIELDS = [
   { key: 'district', label: '所属区县', width: '80px' },
+  { key: 'is_recovered', label: '是否回捞', width: '90px' },
   { key: 'account', label: '宽带账号', width: '130px' },
   { key: 'global_access', label: '全球通标识', width: '100px' },
   { key: 'service_type', label: '服务类型', width: '120px' },
@@ -30,6 +31,7 @@ export function FiveCategoryWithdrawalDetail({ onBack }: { onBack: () => void })
     month_withdrawal_total: '', month_reinstall_total: '', report_date: '',
     latest_filename: '',
   })
+  const [recoveredFilter, setRecoveredFilter] = useState<string>('all') // 'all' | '是' | '否'
   const pageSize = 50
 
   useEffect(() => {
@@ -48,6 +50,19 @@ export function FiveCategoryWithdrawalDetail({ onBack }: { onBack: () => void })
   }, [page])
 
   const totalPages = Math.ceil(total / pageSize)
+
+  // 是否回捞筛选
+  const filteredRecords = records.filter(r => {
+    if (recoveredFilter === 'all') return true
+    const val = (r.is_recovered || '').trim()
+    if (recoveredFilter === '是') return val === '是'
+    if (recoveredFilter === '否') return val !== '是'
+    return true
+  })
+
+  // 统计（基于当前页数据）
+  const recoveredYesCount = records.filter(r => (r.is_recovered || '').trim() === '是').length
+  const recoveredNoCount = records.filter(r => (r.is_recovered || '').trim() !== '是').length
 
   return (
     <div>
@@ -114,6 +129,39 @@ export function FiveCategoryWithdrawalDetail({ onBack }: { onBack: () => void })
         </div>
       </div>
 
+      {/* 是否回捞筛选 */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, padding: '0 4px' }}>
+        {(['all', '是', '否'] as const).map(val => {
+          const isActive = recoveredFilter === val
+          const label = val === 'all' ? '全部' : val === '是' ? '✅ 已回捞' : '❌ 未回捞'
+          const count = val === 'all' ? total : val === '是' ? recoveredYesCount : recoveredNoCount
+          const badge = val === '是'
+            ? { bg: '#f0fdf4', color: '#16a34a', border: '#86efac' }
+            : val === '否'
+            ? { bg: '#fef2f2', color: '#dc2626', border: '#fca5a5' }
+            : { bg: '#f8fafc', color: '#64748b', border: '#cbd5e1' }
+          return (
+            <button
+              key={val}
+              onClick={() => setRecoveredFilter(val)}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 6,
+                border: `1.5px solid ${isActive ? badge.border : '#e5e7eb'}`,
+                background: isActive ? badge.bg : '#fff',
+                color: badge.color,
+                fontSize: 12,
+                fontWeight: isActive ? 600 : 400,
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              {label} ({count})
+            </button>
+          )
+        })}
+      </div>
+
       {/* 数据表格 */}
       {loading ? (
         <div style={{
@@ -133,9 +181,9 @@ export function FiveCategoryWithdrawalDetail({ onBack }: { onBack: () => void })
           boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
           overflow: 'hidden',
         }}>
-          {records.length === 0 ? (
+          {filteredRecords.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>
-              暂无退撤单数据
+              {records.length === 0 ? '暂无退撤单数据' : '没有匹配筛选条件的记录'}
             </div>
           ) : (
             <>
@@ -164,7 +212,7 @@ export function FiveCategoryWithdrawalDetail({ onBack }: { onBack: () => void })
                     </tr>
                   </thead>
                   <tbody>
-                    {records.map((rec, idx) => (
+                    {filteredRecords.map((rec, idx) => (
                       <tr
                         key={rec.id}
                         style={{
@@ -176,12 +224,15 @@ export function FiveCategoryWithdrawalDetail({ onBack }: { onBack: () => void })
                           const val = (rec as unknown as Record<string, string>)[f.key] || ''
                           // 疑似超时退单高亮：值为"是"时显示红色
                           const isTimeout = f.key === 'suspected_timeout'
-                          const isYes = isTimeout && val === '是'
+                          const isTimeoutYes = isTimeout && val === '是'
+                          // 是否回捞高亮
+                          const isRecovered = f.key === 'is_recovered'
+                          const isRecoveredYes = isRecovered && val === '是'
                           return (
                             <td key={f.key} style={{
                               padding: '8px 12px',
-                              color: isYes ? '#ef4444' : '#333',
-                              fontWeight: isYes ? 600 : 400,
+                              color: isTimeoutYes ? '#ef4444' : isRecoveredYes ? '#16a34a' : '#333',
+                              fontWeight: (isTimeoutYes || isRecoveredYes) ? 600 : 400,
                               maxWidth: f.width,
                               whiteSpace: 'normal',
                               wordBreak: 'break-all',

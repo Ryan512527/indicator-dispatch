@@ -205,6 +205,7 @@ export interface FiveCategoryWithdrawalSummary {
 export interface FiveCategoryWithdrawalDetailRecord {
   id: number;
   district: string;
+  is_recovered: string;
   account: string;
   global_access: string;
   service_type: string;

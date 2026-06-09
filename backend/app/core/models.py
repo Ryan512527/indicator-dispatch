@@ -223,6 +223,7 @@ class FiveCategoryWithdrawalDetail(Base):
     report_file_id = Column(BigInteger, ForeignKey("report_files.id"), nullable=False, index=True)
 
     district = Column(String(50), comment="所属区县")
+    is_recovered = Column(String(20), comment="是否回捞")
     account = Column(String(50), comment="宽带账号")
     global_access = Column(String(50), comment="全球通标识")
     service_type = Column(String(100), comment="服务类型")

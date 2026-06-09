@@ -3062,6 +3062,7 @@ def _parse_five_category_withdrawal_files(directory: str) -> dict:
 
                 record = {
                     'district': district_val,
+                    'is_recovered': huilao_val,
                     'account': _get_val('account'),
                     'global_access': _get_val('global_access'),
                     'service_type': _get_val('service_type'),
@@ -3163,6 +3164,7 @@ async def reparse_five_category_withdrawal(db: AsyncSession, directory: Optional
         fcd = FiveCategoryWithdrawalDetail(
             report_file_id=report_file.id,
             district=rec["district"],
+            is_recovered=rec.get("is_recovered", ""),
             account=rec["account"],
             global_access=rec["global_access"],
             service_type=rec["service_type"],
@@ -3249,6 +3251,7 @@ async def get_five_category_withdrawal_details(
         records.append({
             "id": row.id,
             "district": row.district,
+            "is_recovered": row.is_recovered,
             "account": row.account,
             "global_access": row.global_access,
             "service_type": row.service_type,
