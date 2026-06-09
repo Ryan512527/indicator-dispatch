@@ -65,6 +65,27 @@ async def migrate_db():
                 """))
                 print("Migration: Added is_read column to notifications")
 
+        # ── 迁移3: five_category_withdrawal_detail 表添加 is_recovered 列 ──
+        result = await conn.execute(text("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables
+                WHERE table_name = 'five_category_withdrawal_detail'
+            )
+        """))
+        if result.scalar():
+            result = await conn.execute(text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_name = 'five_category_withdrawal_detail'
+                AND column_name = 'is_recovered'
+            """))
+            if result.first() is None:
+                await conn.execute(text("""
+                    ALTER TABLE five_category_withdrawal_detail
+                    ADD COLUMN IF NOT EXISTS is_recovered VARCHAR(20)
+                """))
+                print("Migration: Added is_recovered column to five_category_withdrawal_detail")
+
 
 async def init_db():
     from . import models  # noqa: F401
