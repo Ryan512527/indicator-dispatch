@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, Query, BackgroundTasks, HTTPException
+from pydantic import BaseModel, Field
 import os
 import fnmatch
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from app.core.database import get_db
 from app.core.config import settings
 from app.core.models import IndicatorDefinition, IndicatorEvent
@@ -967,3 +968,130 @@ async def mark_all_notifications_read(
     await db.execute(stmt)
     await db.commit()
     return {"ok": True}
+
+
+# ── Excel 导出 APIs ───────────────────────────────────────────────
+
+@router.get("/reports/daily-report/export-excel")
+async def export_daily_report_excel(
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    将日报-装机积压清单导出为 Excel 文件
+    """
+    from app.services.report_scanner import get_daily_report_backlog
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+
+    # 1. 获取所有数据（不分页）
+    all_records = []
+    page = 1
+    page_size = 200
+    while True:
+        result = await get_daily_report_backlog(db, page, page_size)
+        items = result.get("records", [])
+        all_records.extend(items)
+        if len(items) < page_size:
+            break
+        page += 1
+
+    if not all_records:
+        raise HTTPException(status_code=404, detail="暂无数据可导出")
+
+    # 2. 创建 Excel 工作簿
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "日报-装机积压清单"
+
+    # 3. 写入表头
+    headers = list(all_records[0].keys()) if all_records else []
+    if "id" in headers:
+        headers = [h for h in headers if h != "id"]
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+    header_align = Alignment(horizontal="center", vertical="center")
+
+    for col_idx, key in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=key)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+
+    # 4. 写入数据行
+    for row_idx, rec in enumerate(all_records, 2):
+        for col_idx, key in enumerate(headers, 1):
+            val = rec.get(key, "")
+            # 时间字段格式化
+            if key in ("受理时间", "到装维时间", "完成时限") and val:
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(str(val).replace("T", " ").replace("Z", "+00:00"))
+                    val = dt.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    pass
+            ws.cell(row=row_idx, column=col_idx, value=str(val) if val is not None else "")
+
+    # 5. 自动调整列宽
+    for col_idx, key in enumerate(headers, 1):
+        max_len = len(str(key))
+        for row_idx in range(2, min(len(all_records) + 2, 100)):
+            val = ws.cell(row=row_idx, column=col_idx).value or ""
+            max_len = max(max_len, len(str(val)))
+        ws.column_dimensions[get_column_letter(col_idx)].width = min(max_len + 2, 40)
+
+    # 6. 返回文件流
+    buf = BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"daily_report_backlog_{timestamp}.xlsx"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+# ── 飞书 Sheet 导出 API ───────────────────────────────────────────────
+
+@router.post("/reports/daily-report/export-to-feishu-sheet")
+async def export_daily_report_to_feishu_sheet(
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    将日报-装机积压清单导出到飞书电子表格
+    返回: {"ok": True, "url": "...", "rows_written": N}
+    """
+    from app.services.feishu_sheet_service import export_daily_report_to_feishu
+    from app.services.report_scanner import get_daily_report_backlog
+
+    # 1. 获取全量数据
+    all_records = []
+    page = 1
+    page_size = 200
+    while True:
+        result = await get_daily_report_backlog(db, page, page_size)
+        items = result.get("records", [])
+        all_records.extend(items)
+        if len(items) < page_size:
+            break
+        page += 1
+
+    if not all_records:
+        return {"ok": True, "url": "", "rows_written": 0, "msg": "暂无数据"}
+
+    # 2. 导出到飞书
+    result = export_daily_report_to_feishu(all_records)
+
+    return {
+        "ok": True,
+        "url": result["url"],
+        "rows_written": result["rows_written"],
+        "msg": f"成功导出 {result['rows_written']} 条记录到飞书表格",
+    }

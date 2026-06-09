@@ -36,6 +36,8 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
   const [sourceFilter, setSourceFilter] = useState<string>('all') // 'all' | '宽带积压' | 'FTTR积压'
   const [sortBy, setSortBy] = useState<string | undefined>(undefined)
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [exportingToExcel, setExportingToExcel] = useState(false)
+  const [exportingToFeishu, setExportingToFeishu] = useState(false)
   const pageSize = 50
 
   useEffect(() => {
@@ -70,6 +72,39 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
       setSortOrder('asc')
     }
     setPage(1)
+  }
+
+  const handleExport = async () => {
+    if (exportingToExcel) return
+    setExportingToExcel(true)
+    try {
+      await api.exportDailyReportExcel()
+    } catch (e) {
+      alert('导出失败: ' + String(e))
+    } finally {
+      setExportingToExcel(false)
+    }
+  }
+
+  const handleExportToFeishu = async () => {
+    if (exportingToFeishu) return
+    setExportingToFeishu(true)
+    try {
+      const result = await api.exportDailyReportToFeishuSheet()
+      const url = result.url as string
+      if (url) {
+        const msg = '成功导出 ' + (result.rows_written || 0) + ' 条记录到飞书表格！\n\n点击「确定」在新标签页打开表格，点击「取消」关闭。'
+        if (window.confirm(msg)) {
+          window.open(url, '_blank')
+        }
+      } else {
+        alert('导出失败：未获取到表格链接')
+      }
+    } catch (e: any) {
+      alert('飞书导出失败: ' + String(e))
+    } finally {
+      setExportingToFeishu(false)
+    }
   }
 
   // 前端搜索过滤（按宽带账号/施工地址/施工人姓名）+ 来源筛选
@@ -170,6 +205,44 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
           }}>
             FTTR {fttrCount}
           </span>
+          <button
+            onClick={handleExport}
+            disabled={exportingToExcel || total === 0}
+            style={{
+              padding: '6px 16px',
+              borderRadius: 6,
+              background: exportingToExcel ? '#9ca3af' : '#3b82f6',
+              color: '#fff',
+              border: 'none',
+              cursor: exportingToExcel ? 'not-allowed' : 'pointer',
+              fontSize: 13,
+              fontWeight: 500,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            📥 {exportingToExcel ? '导出中...' : '导出Excel'}
+          </button>
+          <button
+            onClick={handleExportToFeishu}
+            disabled={exportingToFeishu || total === 0}
+            style={{
+              padding: '6px 16px',
+              borderRadius: 6,
+              background: exportingToFeishu ? '#9ca3af' : '#00b96b',
+              color: '#fff',
+              border: 'none',
+              cursor: exportingToFeishu ? 'not-allowed' : 'pointer',
+              fontSize: 13,
+              fontWeight: 500,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            📄 {exportingToFeishu ? '导出中...' : '导出到飞书表格'}
+          </button>
         </span>
       </div>
 

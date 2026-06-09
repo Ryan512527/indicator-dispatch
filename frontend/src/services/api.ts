@@ -188,6 +188,29 @@ export const api = {
       ...(sortBy ? { sort_by: sortBy, order: order || 'asc' } : {}),
     }),
 
+  exportDailyReportExcel: async () => {
+    const res = await fetch(`${BASE}/reports/daily-report/export-excel`)
+    if (!res.ok) throw new Error(`导出失败: ${res.status}`)
+    const blob = await res.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `日报-装机积压清单_${new Date().toISOString().slice(0,10).replace(/-/g,'')}.xlsx`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    window.URL.revokeObjectURL(url)
+  },
+
+  exportDailyReportToFeishuSheet: async () => {
+    const res = await fetch(`${BASE}/reports/daily-report/export-to-feishu-sheet`, { method: 'POST' })
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(text || `导出失败: ${res.status}`)
+    }
+    return res.json()
+  },
+
   reparseDailyReport: async () => {
     const res = await fetch(`${BASE}/reports/daily-report/reparse`, { method: 'POST' });
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
