@@ -1916,18 +1916,30 @@ function Complaint10086DetailPage({ onNavigate }: { onNavigate: (p: Page) => voi
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [sortBy, setSortBy] = useState<string | undefined>(undefined)
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const pageSize = 50
 
   useEffect(() => {
     setLoading(true)
-    api.getComplaint10086Details(page, pageSize)
-      .then(data => {
-        setRecords((data as any).records as Complaint10086DetailRecord[])
-        setTotal((data as any).total as number)
+    ;(api as any).getComplaint10086Details(page, pageSize, sortBy, sortOrder)
+      .then((data: any) => {
+        setRecords(data.records as Complaint10086DetailRecord[])
+        setTotal(data.total as number)
       })
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [page])
+  }, [page, sortBy, sortOrder])
+
+  const handleSort = (key: string) => {
+    if (sortBy === key) {
+      setSortOrder(o => o === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(key)
+      setSortOrder('asc')
+    }
+    setPage(1)
+  }
 
   const totalPages = Math.ceil(total / pageSize)
 
@@ -2001,8 +2013,20 @@ function Complaint10086DetailPage({ onNavigate }: { onNavigate: (p: Page) => voi
                     borderBottom: '2px solid #e5e7eb', textAlign: 'left', whiteSpace: 'nowrap',
                     position: 'sticky', top: 0, background: '#f9fafb', zIndex: 1,
                     minWidth: col.width,
-                  }}>
-                    {col.label}
+                    ...(col.key === 'timeout_deadline' ? { cursor: 'pointer', userSelect: 'none' as const } : {}),
+                  }}
+                    onClick={() => col.key === 'timeout_deadline' ? handleSort(col.key) : undefined}
+                  >
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      {col.label}
+                      {col.key === 'timeout_deadline' && (
+                        <span style={{ fontSize: 11, color: sortBy === col.key ? '#1677ff' : '#bbb' }}>
+                          {sortBy === col.key
+                            ? (sortOrder === 'asc' ? ' ↑' : ' ↓')
+                            : ' ↕'}
+                        </span>
+                      )}
+                    </span>
                   </th>
                 ))}
               </tr>

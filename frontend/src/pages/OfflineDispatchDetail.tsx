@@ -20,25 +20,31 @@ export function OfflineDispatchDetail({ onBack }: { onBack: () => void }) {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [sortBy, setSortBy] = useState<string | undefined>(undefined)
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const pageSize = 50
 
   useEffect(() => {
     setLoading(true)
-    const params: { category?: string; page: number; page_size: number } = {
-      page,
-      page_size: pageSize,
-    }
-    if (activeTab !== 'all') {
-      params.category = activeTab
-    }
-    api.getOfflineDispatchDetails(params)
+    const category = activeTab !== 'all' ? activeTab : undefined
+    api.getOfflineDispatchDetails(page, pageSize, category, sortBy, sortOrder)
       .then((data) => {
         setRecords(data.records as OfflineDispatchDetailRecord[])
         setTotal(data.total || 0)
       })
       .catch(console.error)
       .finally(() => setLoading(false))
-  }, [activeTab, page])
+  }, [activeTab, page, sortBy, sortOrder])
+
+  const handleSort = (key: string) => {
+    if (sortBy === key) {
+      setSortOrder(o => o === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(key)
+      setSortOrder('asc')
+    }
+    setPage(1)
+  }
 
   const totalPages = Math.ceil(total / pageSize)
 
@@ -145,9 +151,19 @@ export function OfflineDispatchDetail({ onBack }: { onBack: () => void }) {
                           fontWeight: 600,
                           color: '#666',
                           whiteSpace: 'nowrap',
+                          cursor: f.key === 'timeout_limit' ? 'pointer' : 'default',
+                          userSelect: 'none',
                         }}
+                        onClick={() => f.key === 'timeout_limit' ? handleSort(f.key) : undefined}
                       >
                         {f.label}
+                        {f.key === 'timeout_limit' && (
+                          <span style={{ fontSize: 11, marginLeft: 2, color: sortBy === f.key ? '#1677ff' : '#bbb' }}>
+                            {sortBy === f.key
+                              ? (sortOrder === 'asc' ? ' ↑' : ' ↓')
+                              : ' ↕'}
+                          </span>
+                        )}
                       </th>
                     ))}
                     <th

@@ -474,11 +474,13 @@ async def daily_report_summary(
 async def daily_report_backlog(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
+    sort_by: str = Query(None, description="排序字段: install_duration_hours"),
+    order: str = Query("asc", description="排序方向: asc/desc"),
     db: AsyncSession = Depends(get_db),
 ):
     """分页获取日报横山装机积压清单（含装机历时计算和时长提醒）"""
     from app.services.report_scanner import get_daily_report_backlog
-    return await get_daily_report_backlog(db, page, page_size)
+    return await get_daily_report_backlog(db, page, page_size, sort_by, order)
 
 
 @router.post("/reports/daily-report/reparse")
@@ -593,11 +595,13 @@ async def complaint_10086_summary(
 async def complaint_10086_detail(
     page: int = 1,
     page_size: int = 50,
+    sort_by: str = Query(None, description="排序字段: timeout_deadline"),
+    order: str = Query("asc", description="排序方向: asc/desc"),
     db: AsyncSession = Depends(get_db),
 ):
     """分页获取10086投诉积压(督办)横山10086积压清单明细"""
     from app.services.report_scanner import get_complaint_10086_details
-    return await get_complaint_10086_details(db, page, page_size)
+    return await get_complaint_10086_details(db, page, page_size, sort_by, order)
 
 
 @router.post("/reports/complaint-10086/reparse")
@@ -676,47 +680,13 @@ async def offline_dispatch_details(
     category: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
+    sort_by: str = Query(None, description="排序字段: timeout_limit"),
+    order: str = Query("asc", description="排序方向: asc/desc"),
     db: AsyncSession = Depends(get_db),
 ):
-    """获取线下派单处理情况横山明细数据（支持按分类筛选）"""
-    from app.core.models import OfflineDispatchDetail
-    from sqlalchemy import select, func
-
-    stmt = select(OfflineDispatchDetail)
-    if category:
-        stmt = stmt.where(OfflineDispatchDetail.category == category)
-
-    count_stmt = select(func.count(OfflineDispatchDetail.id))
-    if category:
-        count_stmt = count_stmt.where(OfflineDispatchDetail.category == category)
-    r = await db.execute(count_stmt)
-    total = r.scalar() or 0
-
-    offset = (page - 1) * page_size
-    data_stmt = stmt.order_by(OfflineDispatchDetail.id.asc()).offset(offset).limit(page_size)
-    r2 = await db.execute(data_stmt)
-    rows = r2.scalars().all()
-
-    records = []
-    for row in rows:
-        records.append({
-            "id": row.id,
-            "district": row.district,
-            "timeout_limit": row.timeout_limit,
-            "broadband_account": row.broadband_account,
-            "is_vip_customer": row.is_vip_customer,
-            "customer_contact": row.customer_contact,
-            "construction_address": row.construction_address,
-            "handler_name": row.handler_name,
-            "category": row.category,
-        })
-
-    return {
-        "records": records,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-    }
+    """获取线下派单处理情况横山明细数据（支持按分类筛选和排序）"""
+    from app.services.report_scanner import get_offline_dispatch_details
+    return await get_offline_dispatch_details(db, page, page_size, category, sort_by, order)
 
 
 # ── 重投预警工单梳理 ──

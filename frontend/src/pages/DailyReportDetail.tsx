@@ -34,16 +34,20 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [sourceFilter, setSourceFilter] = useState<string>('all') // 'all' | '宽带积压' | 'FTTR积压'
+  const [sortBy, setSortBy] = useState<string | undefined>(undefined)
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const pageSize = 50
 
   useEffect(() => {
     loadData()
-  }, [page])
+  }, [page, sortBy, sortOrder])
 
   const loadData = async () => {
     setLoading(true)
     try {
-      const data = await api.getDailyReportBacklog(page, pageSize) as {
+      // 前端 sortBy 用中文键名，映射为后端数据库列名
+      const backendSortBy = sortBy === '装机历时(h)' ? 'install_duration_hours' : sortBy
+      const data = await api.getDailyReportBacklog(page, pageSize, backendSortBy, sortOrder) as {
         records: DailyReportBacklogRecord[];
         total: number;
         page: number;
@@ -56,6 +60,16 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleSort = (key: string) => {
+    if (sortBy === key) {
+      setSortOrder(o => o === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(key)
+      setSortOrder('asc')
+    }
+    setPage(1)
   }
 
   // 前端搜索过滤（按宽带账号/施工地址/施工人姓名）+ 来源筛选
@@ -262,12 +276,21 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
             }}>
               <thead>
                 <tr style={{ background: '#fafafa', borderBottom: '2px solid #e5e7eb' }}>
-                  {[
-                    '所属区县', '宽带账号', '施工地址', '施工人姓名',
-                    '工单状态', '受理时间', '到装维时间', '完成时限',
-                    '装机历时(h)', '时长提醒', '用户品牌', '数据来源',
-                  ].map(col => (
-                    <th key={col} style={{
+                  {([
+                    { key: '所属区县', label: '所属区县' },
+                    { key: '宽带账号', label: '宽带账号' },
+                    { key: '施工地址', label: '施工地址' },
+                    { key: '施工人姓名', label: '施工人姓名' },
+                    { key: '工单状态', label: '工单状态' },
+                    { key: '受理时间', label: '受理时间' },
+                    { key: '到装维时间', label: '到装维时间' },
+                    { key: '完成时限', label: '完成时限' },
+                    { key: '装机历时(h)', label: '装机历时(h)', sortable: true },
+                    { key: '时长提醒', label: '时长提醒' },
+                    { key: '用户品牌', label: '用户品牌' },
+                    { key: '数据来源', label: '数据来源' },
+                  ] as const).map(col => (
+                    <th key={col.key} style={{
                       padding: '10px 8px',
                       textAlign: 'left',
                       fontWeight: 600,
@@ -275,8 +298,20 @@ export function DailyReportDetail({ onBack }: { onBack: () => void }) {
                       whiteSpace: 'nowrap',
                       fontSize: 12,
                       borderBottom: '2px solid #e5e7eb',
-                    }}>
-                      {col}
+                      ...('sortable' in col && col.sortable ? { cursor: 'pointer', userSelect: 'none' as const } : {}),
+                    }}
+                      onClick={() => 'sortable' in col && col.sortable ? handleSort(col.key) : undefined}
+                    >
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {col.label}
+                        {'sortable' in col && col.sortable && (
+                          <span style={{ fontSize: 11, color: sortBy === col.key ? '#1677ff' : '#bbb' }}>
+                            {sortBy === col.key
+                              ? (sortOrder === 'asc' ? ' ↑' : ' ↓')
+                              : ' ↕'}
+                          </span>
+                        )}
+                      </span>
                     </th>
                   ))}
                 </tr>

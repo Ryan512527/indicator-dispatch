@@ -176,7 +176,7 @@ export const api = {
   getDailyReportSummary: () =>
     fetchJson<DailyReportSummary>('/reports/daily-report/summary'),
 
-  getDailyReportBacklog: (page = 1, pageSize = 50) =>
+  getDailyReportBacklog: (page = 1, pageSize = 50, sortBy?: string, order?: string) =>
     fetchJson<{
       records: DailyReportBacklogRecord[];
       total: number;
@@ -185,6 +185,7 @@ export const api = {
     }>('/reports/daily-report/backlog', {
       page: String(page),
       page_size: String(pageSize),
+      ...(sortBy ? { sort_by: sortBy, order: order || 'asc' } : {}),
     }),
 
   reparseDailyReport: async () => {
@@ -244,7 +245,7 @@ export const api = {
   getComplaint10086Summary: () =>
     fetchJson<Complaint10086Summary>('/reports/complaint-10086/summary'),
 
-  getComplaint10086Details: (page = 1, pageSize = 50) =>
+  getComplaint10086Details: (page = 1, pageSize = 50, sortBy?: string, order?: string) =>
     fetchJson<{
       records: Complaint10086DetailRecord[];
       total: number;
@@ -253,6 +254,7 @@ export const api = {
     }>('/reports/complaint-10086/detail', {
       page: String(page),
       page_size: String(pageSize),
+      ...(sortBy ? { sort_by: sortBy, order: order || 'asc' } : {}),
     }),
 
   reparseComplaint10086: async () => {
@@ -298,11 +300,12 @@ export const api = {
     if (!res.ok) throw new Error(`Reparse failed: ${res.status}`);
     return res.json();
   },
-  getOfflineDispatchDetails: async (params?: { category?: string; page?: number; page_size?: number }) => {
+  getOfflineDispatchDetails: async (page = 1, pageSize = 50, category?: string, sortBy?: string, order?: string) => {
     const qs = new URLSearchParams();
-    if (params?.category) qs.set('category', params.category);
-    if (params?.page) qs.set('page', String(params.page));
-    if (params?.page_size) qs.set('page_size', String(params.page_size));
+    if (category) qs.set('category', category);
+    qs.set('page', String(page));
+    qs.set('page_size', String(pageSize));
+    if (sortBy) { qs.set('sort_by', sortBy); qs.set('order', order || 'asc'); }
     return fetchJson<OfflineDispatchDetailResponse>(`/reports/offline-dispatch/details?${qs.toString()}`);
   },
 

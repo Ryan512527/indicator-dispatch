@@ -9,7 +9,7 @@ import re
 import glob
 import logging
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict
 from typing import Optional, List, Dict
 
@@ -25,12 +25,28 @@ logger = logging.getLogger(__name__)
 
 # ── 通知记录辅助函数 ──
 
+# 通知去重时间窗口（秒）：同一 report_type+filename 在此窗口内只产生一条通知
+_NOTIFICATION_DEDUP_SECONDS = 60
+
 async def _add_notification(db: AsyncSession, report_type: str, filename: Optional[str]) -> None:
-    """写入一条指标更新通知记录"""
+    """写入一条指标更新通知记录（含去重：同一文件同一类型在窗口期内不重复创建）"""
     if not filename:
         return
     try:
         from app.core.models import Notification
+        # ── 去重检查：查找同类型同文件的最近未读通知 ──
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=_NOTIFICATION_DEDUP_SECONDS)
+        dup_query = select(Notification).where(
+            Notification.report_type == report_type,
+            Notification.filename == filename,
+            Notification.is_read == False,
+            Notification.event_time >= cutoff,
+        ).order_by(Notification.event_time.desc()).limit(1)
+        dup_result = await db.execute(dup_query)
+        existing = dup_result.scalar_one_or_none()
+        if existing:
+            logger.debug(f"通知去重跳过 [{report_type}] {filename}（{existing.event_time} 已有未读通知）")
+            return
         n = Notification(report_type=report_type, filename=filename)
         db.add(n)
         await db.commit()
@@ -2260,22 +2276,39 @@ async def get_daily_report_backlog(
     db: AsyncSession,
     page: int = 1,
     page_size: int = 50,
+    sort_by: Optional[str] = None,
+    order: str = "asc",
 ) -> dict:
-    """分页获取日报横山装机积压清单"""
+    """分页获取日报横山装机积压清单
+    - sort_by: install_duration_hours 时按装机历时数字排序；其他按 id 排序
+    - order: asc=升序，desc=降序
+    """
     from app.core.models import DailyReportBacklog
-    from sqlalchemy import func as _func
+    from sqlalchemy import func as _func, cast, Numeric, nullslast
 
     count_stmt = select(_func.count(DailyReportBacklog.id))
     r = await db.execute(count_stmt)
     total = r.scalar() or 0
 
     offset = (page - 1) * page_size
-    data_stmt = (
-        select(DailyReportBacklog)
-        .order_by(DailyReportBacklog.id.asc())
-        .offset(offset)
-        .limit(page_size)
-    )
+    data_stmt = select(DailyReportBacklog)
+
+    # 动态排序
+    if sort_by == "install_duration_hours":
+        # 装机历时是字符串存数字，需 CAST 为 NUMERIC，空值排最后
+        col_expr = cast(_func.nullif(DailyReportBacklog.install_duration_hours, ""), Numeric)
+        if order == "desc":
+            data_stmt = data_stmt.order_by(nullslast(col_expr.desc()))
+        else:
+            data_stmt = data_stmt.order_by(nullslast(col_expr.asc()))
+    elif sort_by and hasattr(DailyReportBacklog, sort_by):
+        col = getattr(DailyReportBacklog, sort_by)
+        if order == "desc":
+            data_stmt = data_stmt.order_by(col.desc())
+        else:
+            data_stmt = data_stmt.order_by(col.asc())
+    else:
+        data_stmt = data_stmt.order_by(DailyReportBacklog.id.asc())
     r2 = await db.execute(data_stmt)
     rows = r2.scalars().all()
 
@@ -3985,8 +4018,13 @@ async def get_complaint_10086_details(
     db: AsyncSession,
     page: int = 1,
     page_size: int = 50,
+    sort_by: Optional[str] = None,
+    order: str = "asc",
 ) -> dict:
-    """分页获取10086投诉积压(督办)横山10086积压清单明细"""
+    """分页获取10086投诉积压(督办)横山10086积压清单明细
+    - sort_by: timeout_deadline 时按超时时限排序；其他按 id 排序
+    - order: asc=升序，desc=降序
+    """
     from app.core.models import Complaint10086Detail
     from sqlalchemy import func as _func
 
@@ -3995,12 +4033,17 @@ async def get_complaint_10086_details(
     total = r.scalar() or 0
 
     offset = (page - 1) * page_size
-    data_stmt = (
-        select(Complaint10086Detail)
-        .order_by(Complaint10086Detail.id.asc())
-        .offset(offset)
-        .limit(page_size)
-    )
+    data_stmt = select(Complaint10086Detail)
+
+    # 动态排序
+    if sort_by and hasattr(Complaint10086Detail, sort_by):
+        col = getattr(Complaint10086Detail, sort_by)
+        if order == "desc":
+            data_stmt = data_stmt.order_by(col.desc())
+        else:
+            data_stmt = data_stmt.order_by(col.asc())
+    else:
+        data_stmt = data_stmt.order_by(Complaint10086Detail.id.asc())
     r2 = await db.execute(data_stmt)
     rows = r2.scalars().all()
 
@@ -4837,6 +4880,69 @@ async def reparse_offline_dispatch(db: AsyncSession, directory: Optional[str] = 
         "detail_parsed": detail_count,
         "filename": result["filename"],
         "report_date": result["report_date"],
+    }
+
+
+async def get_offline_dispatch_details(
+    db: AsyncSession,
+    page: int = 1,
+    page_size: int = 50,
+    category: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    order: str = "asc",
+) -> dict:
+    """分页获取线下派单处理情况横山明细数据（支持按分类筛选和排序）
+    - sort_by: timeout_limit 时按超时时限排序；其他按 id 排序
+    - order: asc=升序，desc=降序
+    """
+    from app.core.models import OfflineDispatchDetail
+    from sqlalchemy import func as _func
+
+    stmt = select(OfflineDispatchDetail)
+    if category:
+        stmt = stmt.where(OfflineDispatchDetail.category == category)
+
+    count_stmt = select(_func.count(OfflineDispatchDetail.id))
+    if category:
+        count_stmt = count_stmt.where(OfflineDispatchDetail.category == category)
+    r = await db.execute(count_stmt)
+    total = r.scalar() or 0
+
+    offset = (page - 1) * page_size
+
+    # 动态排序
+    if sort_by and hasattr(OfflineDispatchDetail, sort_by):
+        col = getattr(OfflineDispatchDetail, sort_by)
+        if order == "desc":
+            stmt = stmt.order_by(col.desc())
+        else:
+            stmt = stmt.order_by(col.asc())
+    else:
+        stmt = stmt.order_by(OfflineDispatchDetail.id.asc())
+
+    data_stmt = stmt.offset(offset).limit(page_size)
+    r2 = await db.execute(data_stmt)
+    rows = r2.scalars().all()
+
+    records = []
+    for row in rows:
+        records.append({
+            "id": row.id,
+            "district": row.district,
+            "timeout_limit": row.timeout_limit,
+            "broadband_account": row.broadband_account,
+            "is_vip_customer": row.is_vip_customer,
+            "customer_contact": row.customer_contact,
+            "construction_address": row.construction_address,
+            "handler_name": row.handler_name,
+            "category": row.category,
+        })
+
+    return {
+        "records": records,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
     }
 
 
