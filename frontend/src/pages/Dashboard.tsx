@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../services/api'
+import { eventBus } from '../utils/eventBus'
 import type { Page, ReportType, WirelessOutageSummary, PisiteFaultSummary, AccessLayerFaultSummary, EnterpriseBroadbandSummary, DailyReportSummary, CityWorkloadSummary, FiveCategoryWithdrawalSummary, ComplaintBacklogSummary, Complaint10086Summary, Complaint10086DetailRecord, Complaint2200000Summary, Complaint2200000DetailRecord, OfflineDispatchSummary, OfflineDispatchDetailRecord, RetryWarningSummary, EnterpriseBroadbandFaultSummary, PoorQualityWorkOrderSummary, EnterpriseBroadbandLowLightSummary, BroadbandRedelivery2Summary, AIAnalysisResult } from '../types'
 
 function fmt(iso: string) {
@@ -183,12 +184,19 @@ function WirelessOutageCard({ color, onNavigate }: { color: string; onNavigate: 
   const [summary, setSummary] = useState<WirelessOutageSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.getWirelessOutageSummary()
       .then(data => setSummary(data as WirelessOutageSummary))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -331,12 +339,19 @@ function AccessLayerFaultCard({ color, onNavigate }: { color: string; onNavigate
   const [summary, setSummary] = useState<AccessLayerFaultSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.getAccessLayerFaultSummary()
       .then(data => setSummary(data as AccessLayerFaultSummary))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -513,12 +528,19 @@ function PisiteFaultCard({ color, onNavigate }: { color: string; onNavigate: (p:
   const [summary, setSummary] = useState<PisiteFaultSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.getPisiteFaultSummary()
       .then(data => setSummary(data as PisiteFaultSummary))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -660,12 +682,19 @@ function EnterpriseBroadbandCard({ color, onNavigate }: { color: string; onNavig
   const [summary, setSummary] = useState<EnterpriseBroadbandSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.getEnterpriseBroadbandSummary()
       .then(data => setSummary(data as EnterpriseBroadbandSummary))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -815,12 +844,19 @@ function DailyReportCard({ color, onNavigate }: { color: string; onNavigate: (p:
   const [loading, setLoading] = useState(true)
   const [aiOpen, setAiOpen] = useState(false)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.getDailyReportSummary()
       .then(data => setSummary(data as DailyReportSummary))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -984,12 +1020,19 @@ function CityWorkloadCard({ color, onNavigate }: { color: string; onNavigate: (p
   const [loading, setLoading] = useState(true)
   const [aiOpen, setAiOpen] = useState(false)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.getCityWorkloadSummary()
       .then(data => setSummary(data as CityWorkloadSummary))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -1110,12 +1153,19 @@ function FiveCategoryWithdrawalCard({ color, onNavigate }: { color: string; onNa
   const [summary, setSummary] = useState<FiveCategoryWithdrawalSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.getFiveCategoryWithdrawalSummary()
       .then(data => setSummary(data as FiveCategoryWithdrawalSummary))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -1253,12 +1303,19 @@ function ComplaintBacklogCard({ color, onNavigate }: { color: string; onNavigate
   const [summary, setSummary] = useState<ComplaintBacklogSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.getComplaintBacklogSummary()
       .then(data => setSummary(data as ComplaintBacklogSummary))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -1414,12 +1471,19 @@ function EnterpriseBroadbandFaultCard({ color, onNavigate }: { color: string; on
   const [summary, setSummary] = useState<EnterpriseBroadbandFaultSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.getEnterpriseBroadbandFaultSummary()
       .then(data => setSummary(data as EnterpriseBroadbandFaultSummary))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -1552,12 +1616,19 @@ function PoorQualityWorkOrderCard({ color, onNavigate }: { color: string; onNavi
   const [summary, setSummary] = useState<PoorQualityWorkOrderSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.getPoorQualityWorkOrderSummary()
       .then(data => setSummary(data as PoorQualityWorkOrderSummary))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -1675,12 +1746,19 @@ function EnterpriseBroadbandLowLightCard({ color, onNavigate }: { color: string;
   const [summary, setSummary] = useState<EnterpriseBroadbandLowLightSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.getEnterpriseBroadbandLowLightSummary()
       .then(data => setSummary(data as EnterpriseBroadbandLowLightSummary))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -1773,12 +1851,19 @@ function Complaint10086Card({ color, onNavigate }: { color: string; onNavigate: 
   const [summary, setSummary] = useState<Complaint10086Summary | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setLoading(true)
     api.getComplaint10086Summary()
       .then(data => setSummary(data as Complaint10086Summary))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -2511,13 +2596,19 @@ function Complaint2200000Card({ onNavigate }: { color: string; onNavigate: (p: P
   const [loading, setLoading] = useState(true)
   const [aiOpen, setAiOpen] = useState(false)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
     setLoading(true)
     ;(api as any).getComplaint2200000Summary()
       .then((data: Complaint2200000Summary) => setSummary(data))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   const reportDate = summary?.report_date || ''
   const latestFilename = (summary as any)?.latest_filename || ''
@@ -2631,13 +2722,19 @@ function BroadbandRedelivery2Card({ color }: { color: string }) {
   const [summary, setSummary] = useState<BroadbandRedelivery2Summary | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
     setLoading(true)
     ;(api as any).getBroadbandRedelivery2Summary()
       .then((data: BroadbandRedelivery2Summary) => setSummary(data))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   if (loading) {
     return (
@@ -2721,13 +2818,19 @@ function OfflineDispatchCard({ onNavigate }: { color: string; onNavigate: (p: Pa
   const [loading, setLoading] = useState(true)
   const [aiOpen, setAiOpen] = useState(false)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
     setLoading(true)
     ;(api as any).getOfflineDispatchSummary()
       .then((data: OfflineDispatchSummary) => setSummary(data))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   const reportDate = summary?.report_date || ''
   const latestFilename = (summary as any)?.latest_filename || ''
@@ -2826,13 +2929,19 @@ function RetryWarningCard({ onNavigate }: { color: string; onNavigate: (p: Page)
   const [summary, setSummary] = useState<RetryWarningSummary | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
     setLoading(true)
     ;(api as any).getRetryWarningSummary()
       .then((data: RetryWarningSummary) => setSummary(data))
       .catch(console.error)
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    fetchData()
+    const unsub = eventBus.on('refreshCards', fetchData)
+    return () => unsub()
+  }, [fetchData])
 
   const reportDate = summary?.report_date || ''
   const latestFilename = (summary as any)?.latest_filename || ''
@@ -3160,21 +3269,30 @@ function NotificationBell() {
   const [notifications, setNotifications] = useState<import('../types').Notification[]>([])
   const [open, setOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  // 记录上一次的未读数，用于检测新增通知
+  const prevUnreadRef = useRef(0)
 
-  const fetchNotifications = () => {
+  const fetchNotifications = useCallback(() => {
     api.getNotifications(10)
       .then((data: import('../types').Notification[]) => {
         setNotifications(data)
-        setUnreadCount(data.filter(n => !n.is_read).length)
+        const newUnread = data.filter(n => !n.is_read).length
+        // 检测到新未读通知 → 触发所有卡片刷新
+        if (newUnread > prevUnreadRef.current && newUnread > 0) {
+          eventBus.emit('refreshCards')
+        }
+        prevUnreadRef.current = newUnread
+        setUnreadCount(newUnread)
       })
       .catch(() => {})
-  }
+  }, [])
 
   useEffect(() => {
     fetchNotifications()
-    const interval = setInterval(fetchNotifications, 30000)
+    // 轮询间隔：5分钟（300000ms）
+    const interval = setInterval(fetchNotifications, 300000)
     return () => clearInterval(interval)
-  }, [])
+  }, [fetchNotifications])
 
   const handleMarkAllRead = () => {
     api.markAllNotificationsRead()
