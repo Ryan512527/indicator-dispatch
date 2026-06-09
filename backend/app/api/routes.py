@@ -189,11 +189,9 @@ async def refresh_ai_analysis(
     card_type: str,
     db: AsyncSession = Depends(get_db),
 ):
-    """强制触发 AI 分析（后台异步执行，立即返回）。"""
-    from app.ai.ai_scheduler import trigger_ai_analysis
-    import asyncio
-    asyncio.create_task(trigger_ai_analysis(card_type, db))
-    return {"status": "triggered", "card_type": card_type}
+    """强制触发 AI 分析（同步执行，等待分析完成再返回）。"""
+    from app.ai.ai_scheduler import get_analysis_cache
+    return await get_analysis_cache(db, card_type, force_refresh=True)
 
 
 @router.get("/ai/analysis/{card_type}/cache")

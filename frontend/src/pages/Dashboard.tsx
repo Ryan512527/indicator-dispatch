@@ -2316,22 +2316,12 @@ function AIAnalysisDrawer({
     setRefreshing(true)
     setErrorMsg('')
     try {
-      await (api as any).refreshAIAnalysis(cardType)
-      // 等待分析完成（轮询最多 60 秒）
-      let attempts = 0
-      while (attempts < 60) {
-        await new Promise(r => setTimeout(r, 1000))
-        attempts++
-        try {
-          const data = await (api as any).getAIAnalysis(cardType, false)
-          if (data.status === 'ok') {
-            setResult(data)
-            setRefreshing(false)
-            return
-          }
-        } catch {}
+      const data = await (api as any).refreshAIAnalysis(cardType)
+      if (data.status === 'ok') {
+        setResult(data)
+      } else {
+        setErrorMsg('分析失败：' + JSON.stringify(data))
       }
-      setErrorMsg('分析超时，请重试或刷新页面')
     } catch (e: any) {
       setErrorMsg('刷新失败：' + (e.message || '未知错误'))
     } finally {

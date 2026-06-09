@@ -49,7 +49,14 @@ async def trigger_ai_analysis(card_type: str, db: AsyncSession) -> None:
         try:
             # 创建独立的数据库会话（避免污染 reparse 的事务）
             from app.core.database import async_session
+            from app.core.models import AIAnalysisCache
             async with async_session() as session:
+                # 先删除旧缓存，确保 analyze_card 不会因 fingerprint 相同而跳过
+                await session.execute(
+                    AIAnalysisCache.__table__.delete().where(AIAnalysisCache.card_type == card_type)
+                )
+                await session.commit()
+                # 重新分析并写入新缓存
                 await analyze_card(card_type, session)
                 await session.commit()
         except Exception as e:
@@ -795,6 +802,12 @@ async def get_analysis_cache(
 
     if force_refresh:
         logger.info(f"[AI分析] 强制刷新 card_type={card_type}")
+        # 先删除旧缓存，确保 analyze_card 不会因 fingerprint 相同而跳过
+        from app.core.models import AIAnalysisCache
+        await db.execute(
+            AIAnalysisCache.__table__.delete().where(AIAnalysisCache.card_type == card_type)
+        )
+        await db.commit()
         await analyze_card(card_type, db)
         await db.commit()  # 持久化分析结果
 
