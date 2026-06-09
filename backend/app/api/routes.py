@@ -986,6 +986,18 @@ async def export_daily_report_excel(
     from io import BytesIO
     from fastapi.responses import StreamingResponse
 
+    # 账号脱敏函数
+    def mask_account(acc):
+        if not acc:
+            return ""
+        s = str(acc).strip()
+        n = len(s)
+        if n <= 7:
+            if n <= 2:
+                return s
+            return s[0] + "XXXX" + s[-1]
+        return s[:3] + "XXXX" + s[-4:]
+
     # 1. 获取所有数据（不分页）
     all_records = []
     page = 1
@@ -1021,12 +1033,15 @@ async def export_daily_report_excel(
         cell.fill = header_fill
         cell.alignment = header_align
 
-    # 4. 写入数据行
+    # 4. 写入数据行（账号字段脱敏）
     for row_idx, rec in enumerate(all_records, 2):
         for col_idx, key in enumerate(headers, 1):
             val = rec.get(key, "")
+            # 账号字段脱敏：支持中文"宽带账号"和英文"account"
+            if (key == "account" or "账号" in key) and val:
+                val = mask_account(val)
             # 时间字段格式化
-            if key in ("受理时间", "到装维时间", "完成时限") and val:
+            elif key in ("受理时间", "到装维时间", "完成时限") and val:
                 try:
                     from datetime import datetime
                     dt = datetime.fromisoformat(str(val).replace("T", " ").replace("Z", "+00:00"))

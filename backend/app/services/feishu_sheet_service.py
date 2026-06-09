@@ -53,6 +53,24 @@ def _headers() -> dict:
 
 # ── 工具函数 ──────────────────────────────────────────────────────────────
 
+def _mask_account(acc: Any) -> str:
+    """
+    宽带账号脱敏：只显示前3位和后4位，中间用 XXXX 代替
+    例：13474220470 → 134XXXX0470
+    账号长度不足7位时：前1位 + XXXX + 后1位
+    """
+    if not acc:
+        return ""
+    s = str(acc).strip()
+    n = len(s)
+    if n <= 7:
+        # 短账号：前1位 + XXXX + 后1位
+        if n <= 2:
+            return s
+        return s[0] + "XXXX" + s[-1]
+    return s[:3] + "XXXX" + s[-4:]
+
+
 def _col_letter(n: int) -> str:
     """1→A, 2→B, … 27→AA, 28→AB, …"""
     s = ""
@@ -257,10 +275,18 @@ def export_daily_report_to_feishu(
     sheet_id = result["sheet_id"]
     url = result["url"]
 
-    # 3. 构造 values（表头 + 数据行）
+    # 3. 构造 values（表头 + 数据行），账号字段脱敏
+    # 字段名可能是中文"宽带账号"或英文"account"
     values: List[List[str]] = [field_names]
     for rec in records:
-        row = [str(rec.get(f, "")) for f in field_names]
+        row = []
+        for f in field_names:
+            v = rec.get(f, "")
+            # 账号字段脱敏：支持中文"宽带账号"和英文"account"
+            if (f == "account" or "账号" in f) and v:
+                row.append(_mask_account(v))
+            else:
+                row.append(str(v) if v is not None else "")
         values.append(row)
 
     # 4. 写入（单次最多 5000 行，超出则分批）
