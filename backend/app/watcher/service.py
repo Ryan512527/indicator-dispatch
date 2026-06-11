@@ -37,13 +37,21 @@ class IndicatorFileHandler(FileSystemEventHandler):
 
     def on_created(self, event):
         if not event.is_directory and self._is_supported(event.src_path):
-            self.loop.call_soon_threadsafe(self.queue.put_nowait, event.src_path)
+            fname = os.path.basename(event.src_path)
+            if not fname.startswith("~$") and not fname.startswith("."):
+                self.loop.call_soon_threadsafe(self.queue.put_nowait, event.src_path)
 
     def on_modified(self, event):
         if not event.is_directory and self._is_supported(event.src_path):
             fname = os.path.basename(event.src_path)
             if not fname.startswith("~$") and not fname.startswith("."):
                 self.loop.call_soon_threadsafe(self.queue.put_nowait, event.src_path)
+
+    def on_moved(self, event):
+        if not event.is_directory and self._is_supported(event.dest_path):
+            fname = os.path.basename(event.dest_path)
+            if not fname.startswith("~$") and not fname.startswith("."):
+                self.loop.call_soon_threadsafe(self.queue.put_nowait, event.dest_path)
 
     @staticmethod
     def _is_supported(path):
@@ -58,8 +66,13 @@ class FileWatcher:
         # 记录已处理的文件路径及其修改时间，用于轮询兜底
         self._known_files: dict[str, float] = {}
 
-    def _scan_files(self, handler: IndicatorFileHandler):
-        """轮询扫描：发现新增或修改的文件，加入处理队列（watchdog 兜底）"""
+    def _scan_files(self, handler: IndicatorFileHandler,
+                    trigger_reparse: bool = True):
+        """轮询扫描：发现新增或修改的文件，加入处理队列（watchdog 兜底）
+        
+        Args:
+            trigger_reparse: False 时仅记录 mtime 不入队（启动初始化用）
+        """
         for root, dirs, files in os.walk(self.watch_dir):
             for f in files:
                 fpath = os.path.join(root, f)
@@ -73,7 +86,8 @@ class FileWatcher:
                     continue
                 if fpath not in self._known_files or self._known_files[fpath] < mtime:
                     self._known_files[fpath] = mtime
-                    handler.queue.put_nowait(fpath)
+                    if trigger_reparse:
+                        handler.queue.put_nowait(fpath)
 
     async def start(self):
         os.makedirs(self.watch_dir, exist_ok=True)
@@ -85,11 +99,11 @@ class FileWatcher:
         self._running = True
         logger.info(f"File watcher started (recursive): {self.watch_dir}")
 
-        # ── 启动时扫描已有文件，初始化已知文件列表 ──
-        self._scan_files(handler)
+        # ── 启动时初始化已知文件列表（不入队，避免阻塞，数据已在DB中）──
+        self._scan_files(handler, trigger_reparse=False)
         initial_count = len(self._known_files)
         if initial_count:
-            logger.info(f"[Watcher] 发现 {initial_count} 个已有文件，加入处理队列")
+            logger.info(f"[Watcher] 发现 {initial_count} 个已有文件（跳过重解析，数据已在数据库）")
 
         import httpx
         from app.parser.service import parse_file as _parse_file_sync
