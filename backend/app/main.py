@@ -9,10 +9,15 @@ import asyncio
 import logging
 import os
 
-# 配置日志
+# 配置日志（同时输出到控制台和文件，方便排查崩溃问题）
+LOG_FILE = os.path.join(os.path.dirname(__file__), "..", "app.log")
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(LOG_FILE, encoding='utf-8'),
+    ]
 )
 
 logger = logging.getLogger(__name__)

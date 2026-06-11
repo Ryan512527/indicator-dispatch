@@ -23,6 +23,16 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+# ── 并发保护：每个 report_type 一把锁，防止同类型并发 reparse 导致 DELETE/INSERT 数据竞争 ──
+_reparse_locks: dict[str, asyncio.Lock] = {}
+
+def _get_reparse_lock(name: str) -> asyncio.Lock:
+    """获取指定 report_type 的互斥锁（懒创建）"""
+    if name not in _reparse_locks:
+        _reparse_locks[name] = asyncio.Lock()
+    return _reparse_locks[name]
+
+
 # ── 通知记录辅助函数 ──
 
 # 通知去重时间窗口（秒）：同一 report_type+filename 在此窗口内只产生一条通知
@@ -55,12 +65,16 @@ async def _add_notification(db: AsyncSession, report_type: str, filename: Option
 
 
 def record_notification(report_type_name: str):
-    """装饰器：在 reparse 成功后自动写入通知记录"""
+    """装饰器：串行化同类型 reparse（防并发数据竞争），并在成功后写入通知记录"""
     def decorator(func):
         async def wrapper(db: AsyncSession, directory: Optional[str] = None):
-            result = await func(db, directory)
-            if result and result.get("filename"):
-                await _add_notification(db, report_type_name, result["filename"])
+            lock = _get_reparse_lock(report_type_name)
+            async with lock:
+                result = await func(db, directory)
+            if result:
+                # 优先使用返回的 filename，否则用 report_type_name 作为通知文件名
+                filename = result.get("filename") or report_type_name
+                await _add_notification(db, report_type_name, filename)
             return result
         return wrapper
     return decorator
@@ -525,6 +539,7 @@ async def reparse_wireless_outage(db: AsyncSession, directory: Optional[str] = N
     files_parsed = 0
     files_skipped = 0
     all_columns = set(WIRELESS_OUTAGE_FIELDS)
+    last_filename = ""
 
     for fr in file_results:
         filename = fr["filename"]
@@ -546,6 +561,7 @@ async def reparse_wireless_outage(db: AsyncSession, directory: Optional[str] = N
         total_records += len(records)
         if records:
             files_parsed += 1
+            last_filename = filename
         else:
             files_skipped += 1
 
@@ -559,6 +575,7 @@ async def reparse_wireless_outage(db: AsyncSession, directory: Optional[str] = N
         "total_records": total_records,
         "files_parsed": files_parsed,
         "files_skipped": files_skipped,
+        "filename": last_filename,
     }
 
 
@@ -882,6 +899,7 @@ async def reparse_pisite_fault(db: AsyncSession, directory: Optional[str] = None
     files_parsed = 0
     files_skipped = 0
     all_columns = set(PISITE_FAULT_FIELDS)
+    last_filename = ""
 
     for fr in file_results:
         filename = fr["filename"]
@@ -903,6 +921,7 @@ async def reparse_pisite_fault(db: AsyncSession, directory: Optional[str] = None
         total_records += len(records)
         if records:
             files_parsed += 1
+            last_filename = filename
         else:
             files_skipped += 1
 
@@ -916,6 +935,7 @@ async def reparse_pisite_fault(db: AsyncSession, directory: Optional[str] = None
         "total_records": total_records,
         "files_parsed": files_parsed,
         "files_skipped": files_skipped,
+        "filename": last_filename,
     }
 
 
@@ -1236,6 +1256,7 @@ async def reparse_access_layer_fault(db: AsyncSession, directory: Optional[str] 
     files_parsed = 0
     files_skipped = 0
     all_columns = set(ACCESS_LAYER_FAULT_FIELDS)
+    last_filename = ""
 
     for fr in file_results:
         filename = fr["filename"]
@@ -1257,6 +1278,7 @@ async def reparse_access_layer_fault(db: AsyncSession, directory: Optional[str] 
         total_records += len(records)
         if records:
             files_parsed += 1
+            last_filename = filename
         else:
             files_skipped += 1
 
@@ -1270,6 +1292,7 @@ async def reparse_access_layer_fault(db: AsyncSession, directory: Optional[str] 
         "total_records": total_records,
         "files_parsed": files_parsed,
         "files_skipped": files_skipped,
+        "filename": last_filename,
     }
 
 
@@ -6698,6 +6721,7 @@ def _parse_broadband_redelivery2_from_dir(directory: str) -> dict:
     return _parse_broadband_redelivery2_files(latest_file, filename)
 
 
+@record_notification("家宽重投2次清单明细")
 async def reparse_broadband_redelivery2(db: AsyncSession, directory: Optional[str] = None) -> dict:
     """重新解析家宽重投2次清单，提取横山最新8项指标"""
     from app.core.models import BroadbandRedelivery2Summary, ReportFile, ReportType
@@ -6709,7 +6733,7 @@ async def reparse_broadband_redelivery2(db: AsyncSession, directory: Optional[st
     result = await asyncio.to_thread(_parse_broadband_redelivery2_from_dir, directory)
 
     if "error" in result:
-        return result
+        return {**result, "filename": ""}
     summary_data = result["summary"]
     filename = result.get("filename", "")
 

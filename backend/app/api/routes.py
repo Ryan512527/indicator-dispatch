@@ -556,7 +556,7 @@ async def five_category_withdrawal_reparse(
     """重新解析五类工单退撤单情况文件，提取横山汇总指标和退撤单明细"""
     from app.services.report_scanner import reparse_five_category_withdrawal
     result = await reparse_five_category_withdrawal(db, directory)
-    return {"report_type": "五类工单撤撤单情况", **result}
+    return {"report_type": "五类工单退撤单情况", **result}
 
 
 # ── 宽带在途投诉清单横山专用 API ──
