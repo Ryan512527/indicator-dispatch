@@ -14,7 +14,7 @@ export function AIChat() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: '你好！我是指标调度系统的 AI 助手，已接入 DeepSeek 大模型。你可以问我：\n- "有哪些指标" 查看指标列表\n- "系统总览" 查看概况\n- "最高的指标" 查看排名\n- 或输入任意问题，我会智能回答',
+      content: '你好！我是指标调度系统的 AI 助手，已接入 OpenRouter 大模型。你可以问我：\n- "有哪些指标" 查看指标列表\n- "系统总览" 查看概况\n- "最高的指标" 查看排名\n- 或输入任意问题，我会智能回答',
     },
   ])
   const [input, setInput] = useState('')

@@ -265,11 +265,11 @@ def export_daily_report_to_feishu(
     # 1. 字段顺序（去掉 id）
     field_names = [k for k in records[0].keys() if k != "id"]
 
-    # 2. 创建表格
+    # 2. 创建表格（不指定 folder_token，创建到应用自己工作空间，避免权限问题）
     ts = time.strftime("%Y%m%d_%H%M%S")
     result = create_spreadsheet(
         title=f"日报-装机积压清单_{ts}",
-        folder_token=folder_token,
+        folder_token=None,
     )
     spreadsheet_token = result["spreadsheet_token"]
     sheet_id = result["sheet_id"]

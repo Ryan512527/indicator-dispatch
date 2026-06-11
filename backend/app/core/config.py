@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     watch_dir: str = "/data"
     llm_api_key: Optional[str] = None
     llm_base_url: Optional[str] = None
-    llm_model: str = "gpt-4o-mini"
+    llm_model: str = "openai/gpt-oss-120b:free"
     wxpusher_app_token: Optional[str] = None
 
     class Config:
